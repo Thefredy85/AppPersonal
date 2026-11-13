@@ -137,6 +137,8 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
             Column(Modifier.fillMaxSize().padding(pad)) {
                 if (dest == Dest.Today) GreetingHeader(
                     app.userName.value,
+                    rows.count { it.doneAt == null && it.dueDate <= java.time.LocalDate.now().toString() },
+                    blocks.count { it.weekday == java.time.LocalDate.now().dayOfWeek.value },
                     Modifier.padding(horizontal = Dimens.screenPadding, vertical = Space.md),
                 ) else Text(
                     dest.label, style = MaterialTheme.typography.displaySmall, color = c.text,
