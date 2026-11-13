@@ -42,7 +42,11 @@ class AlarmScheduler(private val context: Context) {
     fun canScheduleExact(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
 
-    fun rescheduleAll(blocks: List<TimetableBlock>, nowLocal: LocalDateTime = LocalDateTime.now()): Int {
+    fun rescheduleAll(
+        blocks: List<TimetableBlock>,
+        eventReminders: List<app.agenda.data.PendingReminder> = emptyList(),
+        nowLocal: LocalDateTime = LocalDateTime.now(),
+    ): Int {
         val zone = ZoneId.systemDefault()
         val keep = mutableSetOf<String>()
         for (b in blocks) {
@@ -52,7 +56,17 @@ class AlarmScheduler(private val context: Context) {
             schedule(b, fireAt, start.toLocalTime().toString())
             keep += b.occurrenceId
         }
-        // Cancela los avisos de clases borradas o cambiadas.
+        // Avisos de tareas, exámenes y recordatorios (a fecha y hora exactas).
+        for (r in eventReminders) {
+            val at = runCatching { LocalDateTime.parse(r.remindAtLocal) }.getOrNull() ?: continue
+            if (!at.isAfter(nowLocal)) continue
+            val kind = when (r.type) { "exam" -> "Examen"; "reminder" -> "Recordatorio"; else -> "Tarea" }
+            val detail = listOfNotNull(kind, r.subjectName, r.dueTime?.let { "a las $it" }).joinToString(" · ")
+            val key = "ev:${r.reminderId}"
+            setAlarm(at.atZone(zone).toInstant().toEpochMilli(), 5 * 60_000L, pendingIntent(key, r.title, null, "", detail))
+            keep += key
+        }
+        // Cancela los avisos de clases o tareas borradas o cambiadas.
         val old = prefs.getStringSet("scheduled", emptySet()).orEmpty()
         (old - keep).forEach { cancel(it) }
         prefs.edit().putStringSet("scheduled", keep).apply()
@@ -60,14 +74,14 @@ class AlarmScheduler(private val context: Context) {
     }
 
     private fun schedule(b: TimetableBlock, fireAtMillis: Long, startLabel: String) {
-        val pi = pendingIntent(b.occurrenceId, b.subjectName, b.room, startLabel)
+        val pi = pendingIntent(b.occurrenceId, b.subjectName, b.room, startLabel, null)
         setAlarm(fireAtMillis, 5 * 60_000L, pi)
     }
 
     /** Aviso de prueba dentro de [seconds] segundos, por el mismo camino que los avisos reales. */
     fun scheduleTest(seconds: Int = 15): Long {
         val fireAt = System.currentTimeMillis() + seconds * 1000L
-        val pi = pendingIntent("test", "Aviso de prueba", null, "ahora")
+        val pi = pendingIntent("test", "Aviso de prueba", null, "ahora", null)
         setAlarm(fireAt, 60_000L, pi)
         return fireAt
     }
@@ -88,12 +102,13 @@ class AlarmScheduler(private val context: Context) {
         am.setWindow(AlarmManager.RTC_WAKEUP, fireAtMillis, windowMillis, pi)
     }
 
-    private fun cancel(occurrenceId: String) = am.cancel(pendingIntent(occurrenceId, "", null, ""))
+    private fun cancel(occurrenceId: String) = am.cancel(pendingIntent(occurrenceId, "", null, "", null))
 
-    private fun pendingIntent(occurrenceId: String, subject: String, room: String?, start: String): PendingIntent {
+    /** [detail] != null: aviso de tarea (texto ya armado); null: aviso de clase. */
+    private fun pendingIntent(occurrenceId: String, subject: String, room: String?, start: String, detail: String?): PendingIntent {
         val intent = Intent(context, ClassReminderReceiver::class.java).apply {
             action = "app.agenda.CLASS_REMINDER.$occurrenceId"
-            putExtra("subject", subject); putExtra("room", room); putExtra("start", start)
+            putExtra("subject", subject); putExtra("room", room); putExtra("start", start); putExtra("detail", detail)
         }
         return PendingIntent.getBroadcast(
             context, occurrenceId.hashCode(), intent,
@@ -165,7 +180,8 @@ class ClassReminderReceiver : BroadcastReceiver() {
         val subject = intent.getStringExtra("subject").orEmpty()
         val room = intent.getStringExtra("room")
         val start = intent.getStringExtra("start").orEmpty()
-        val text = if (room.isNullOrBlank()) "Empieza a las $start" else "Empieza a las $start · $room"
+        val detail = intent.getStringExtra("detail")
+        val text = detail ?: if (room.isNullOrBlank()) "Empieza a las $start" else "Empieza a las $start · $room"
         AlarmScheduler.notify(context, intent.action.hashCode(), subject, text)
         val pending = goAsync()
         receiverScope.launch {

@@ -100,12 +100,13 @@ interface AgendaDao {
 }
 
 @Database(
-    entities = [Planner::class, Subject::class, Timetable::class, Lesson::class, Occurrence::class],
-    version = 2,
+    entities = [Planner::class, Subject::class, Timetable::class, Lesson::class, Occurrence::class, Event::class, EventReminder::class, Subtask::class],
+    version = 3,
     exportSchema = true,
 )
 abstract class AgendaDatabase : RoomDatabase() {
     abstract fun dao(): AgendaDao
+    abstract fun events(): EventDao
 
     companion object {
         /** v1 → v2: color libre ARGB. Copia el color de la antigua paleta de 10; no borra nada. */
@@ -119,9 +120,13 @@ abstract class AgendaDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) { MIGRATION_2_3_SQL.forEach { db.execSQL(it) } }
+        }
+
         fun create(context: Context): AgendaDatabase =
             Room.databaseBuilder(context, AgendaDatabase::class.java, "agenda.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 // A propósito NO hay fallbackToDestructiveMigration: un cambio de esquema sin migración
                 // debe fallar en pruebas, nunca borrar los datos del usuario.
                 .build()

@@ -11,6 +11,8 @@ import androidx.compose.runtime.mutableStateOf
 class AgendaApp : Application() {
     lateinit var repository: AgendaRepository
         private set
+    lateinit var events: app.agenda.data.EventRepository
+        private set
     lateinit var alarms: AlarmScheduler
         private set
     lateinit var prefs: Prefs
@@ -29,7 +31,12 @@ class AgendaApp : Application() {
         alarms = AlarmScheduler(this)
         val db = AgendaDatabase.create(this)
         repository = AgendaRepository(db.dao()) { rescheduleAlarms() }
+        events = app.agenda.data.EventRepository(db.events(), { repository.ensureDefaults() }) { rescheduleAlarms() }
     }
 
-    suspend fun rescheduleAlarms(): Int = alarms.rescheduleAll(repository.remindableBlocks())
+    suspend fun rescheduleAlarms(): Int {
+        val nowLocal = java.time.LocalDateTime.now().withSecond(0).withNano(0)
+        val pending = events.pendingReminders(nowLocal.toString().take(16))
+        return alarms.rescheduleAll(repository.remindableBlocks(), pending, nowLocal)
+    }
 }

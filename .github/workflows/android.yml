@@ -39,6 +39,13 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
 
+      - name: Mostrar el esquema de la base de datos (para comprobar migraciones)
+        run: |
+          for f in app/schemas/*/*.json; do
+            echo "== $f"
+            python3 -c "import json,sys; d=json.load(open(sys.argv[1]))['database']; [print(e['tableName'], '|', e['createSql'].replace('\${TABLE_NAME}', e['tableName']), '|', [(i['name'], i['createSql'].replace('\${TABLE_NAME}', e['tableName'])) for i in e.get('indices', [])]) for e in d['entities']]" "$f"
+          done
+
       - name: Nombrar el APK con su versión
         run: |
           V=$(grep '^VERSION=' version.properties | cut -d= -f2)
