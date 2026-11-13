@@ -41,6 +41,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -441,9 +443,9 @@ private fun PendingBoard(rows: List<EventRow>, pending: List<EventRow>, todayStr
 }
 
 /**
- * Tablero de la semana: cada día es una columna donde se apilan "ladrillos" del color de cada pendiente
- * (menta tarea, ámbar examen, violeta recordatorio) y debajo las horas de clase. Los ladrillos caen en cascada
- * al entrar. Tocar un día lo destaca y muestra abajo lo que hay ese día.
+ * Semana en mapa de calor: siete mosaicos que se encienden en cascada con el color de su carga
+ * (libre → ligero → medio → pesado → al tope). El de hoy lleva anillo; el más cargado, una llama que late.
+ * Debajo, las 4 semanas siguientes en cuadritos. Tocar un día muestra lo que hay.
  */
 @Composable
 private fun WeekBoard(rows: List<EventRow>, blocks: List<TimetableBlock>, onEdit: (String) -> Unit) {
@@ -452,93 +454,88 @@ private fun WeekBoard(rows: List<EventRow>, blocks: List<TimetableBlock>, onEdit
     val today = LocalDate.now()
     val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
     val days = (0..6).map { monday.plusDays(it.toLong()) }
+    val loads = days.map { dayLoad(it, rows, blocks) }
     val perDay = days.map { d -> rows.filter { it.doneAt == null && it.dueDate == d.toString() }.sortedBy { it.dueTime ?: "" } }
-    val classHours = (1..7).map { w -> blocks.filter { it.weekday == w }.sumOf { toMinutes(it.endTime) - toMinutes(it.startTime) } / 60f }
     var sel by remember { mutableIntStateOf(today.dayOfWeek.value - 1) }
-    val grow = remember { Animatable(if (level == MotionLevel.Full) 0f else 1f) }
-    LaunchedEffect(Unit) { delay(350); grow.animateTo(1f, tween(1100, easing = Motion.EaseEmphasized)) }
-    val totalWeek = perDay.sumOf { it.size }
-    val busiest = perDay.withIndex().maxByOrNull { it.value.size }?.takeIf { it.value.isNotEmpty() }?.index
+    val ignite = remember { Animatable(if (level == MotionLevel.Full) 0f else 1f) }
+    LaunchedEffect(Unit) { delay(300); ignite.animateTo(1f, tween(1200, easing = Motion.EaseEmphasized)) }
+    val hottest = loads.withIndex().maxByOrNull { it.value }?.takeIf { it.value > 0f }?.index
+    val flame by rememberInfiniteTransition(label = "flame").animateFloat(0.85f, 1.15f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "fl")
     val shape = RoundedCornerShape(28.dp)
 
     Column(Modifier.fillMaxWidth().clip(shape).background(c.surface).border(1.dp, c.border, shape).padding(Space.lg)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if (totalWeek == 0) "Semana despejada" else if (totalWeek == 1) "1 pendiente esta semana" else "$totalWeek pendientes esta semana",
-                    style = MaterialTheme.typography.titleMedium, color = c.text)
-                if (busiest != null) Text(
-                    "Día más cargado: " + days[busiest].dayOfWeek.getDisplayName(TextStyle.FULL, es),
+                Text("Calor de la semana", style = MaterialTheme.typography.titleMedium, color = c.text)
+                Text(
+                    hottest?.let { "Día más pesado: " + days[it].dayOfWeek.getDisplayName(TextStyle.FULL, es) } ?: "Semana tranquila",
                     style = MaterialTheme.typography.labelMedium, color = c.textMuted,
                 )
             }
-            listOf("homework", "exam", "reminder").forEach { t ->
-                Box(Modifier.padding(start = 6.dp).size(10.dp).clip(RoundedCornerShape(3.dp)).background(typeColor(t)))
-            }
+            HeatLegend()
         }
         Spacer(Modifier.height(Space.md))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             days.forEachIndexed { i, d ->
-                val isToday = d == today
+                val k = ((ignite.value * 1.7f) - i * 0.1f).coerceIn(0f, 1f)
+                val heat = heatColor(loads[i])
                 val selected = i == sel
-                val bg by animateColorAsState(if (selected) c.accent.copy(alpha = 0.16f) else Color.Transparent, label = "dayBg$i")
-                val scale by animateFloatAsState(if (selected) 1.04f else 1f, Motion.light(level), label = "daySc$i")
-                val colShape = RoundedCornerShape(16.dp)
+                val scale by animateFloatAsState(if (selected) 1.08f else 1f, Motion.light(level), label = "hs$i")
+                val tShape = RoundedCornerShape(16.dp)
                 Column(
-                    Modifier.weight(1f).graphicsLayer { scaleX = scale; scaleY = scale }
-                        .clip(colShape).background(bg)
-                        .then(if (selected) Modifier.border(1.5.dp, c.accent, colShape) else Modifier)
-                        .clickable { sel = i }.padding(horizontal = 4.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    Modifier.weight(1f).height(96.dp)
+                        .graphicsLayer { scaleX = scale * (0.8f + 0.2f * k); scaleY = scaleX; alpha = 0.3f + 0.7f * k }
+                        .clip(tShape)
+                        .background(Brush.verticalGradient(listOf(lerp(c.surfaceHigh, heat, k), lerp(c.surfaceHigh, heat, k * 0.55f))))
+                        .then(if (d == today) Modifier.border(2.dp, c.text, tShape) else Modifier)
+                        .then(if (selected && d != today) Modifier.border(1.5.dp, heat, tShape) else Modifier)
+                        .clickable { sel = i },
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    val items = perDay[i]
-                    Column(Modifier.height(92.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.Bottom), horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (items.size > 5) Text("+${items.size - 5}", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
-                        items.take(5).forEachIndexed { j, r ->
-                            Box(
-                                Modifier.fillMaxWidth().height(13.dp)
-                                    .graphicsLayer {
-                                        val k = (grow.value * 2f - (i * 0.1f + (items.size - j) * 0.08f)).coerceIn(0f, 1f)
-                                        alpha = k; translationY = -(1f - k) * 30.dp.toPx()
-                                    }
-                                    .clip(RoundedCornerShape(5.dp)).background(typeColor(r.type))
-                            )
-                        }
-                        if (items.isEmpty()) Box(Modifier.fillMaxWidth().height(3.dp).clip(CircleShape).background(c.surfaceHigh))
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(DayShort[i], style = MaterialTheme.typography.labelSmall, color = if (isToday) c.accent else c.textMuted)
-                    Box(
-                        Modifier.padding(top = 2.dp).size(26.dp).clip(CircleShape).background(if (isToday) c.accent else Color.Transparent),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("${d.dayOfMonth}", style = MaterialTheme.typography.labelMedium, color = if (isToday) c.onAccent else c.text) }
-                    Text(
-                        if (classHours[i] > 0f) "${if (classHours[i] % 1f == 0f) classHours[i].toInt().toString() else "%.1f".format(classHours[i])} h" else "–",
-                        style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1,
-                    )
+                    val fg = if (heat.luminance() > 0.4f) Color(0xFF14121C) else Color(0xFFF4F6FA)
+                    Text(DayShort[i], style = MaterialTheme.typography.labelSmall, color = fg.copy(alpha = 0.85f), modifier = Modifier.padding(top = 6.dp))
+                    if (i == hottest && loads[i] >= 4f) Icon(
+                        Icons.Outlined.LocalFireDepartment, contentDescription = "Día más pesado", tint = fg,
+                        modifier = Modifier.size(18.dp).graphicsLayer { if (level == MotionLevel.Full) { scaleX = flame; scaleY = flame } },
+                    ) else Text("${perDay[i].size.takeIf { it > 0 } ?: ""}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = fg)
+                    Text("${d.dayOfMonth}", style = MaterialTheme.typography.labelMedium, color = fg, modifier = Modifier.padding(bottom = 6.dp))
                 }
             }
         }
-        Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.School, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(12.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("Horas de clase por día", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        // 4 semanas siguientes
+        Text("Próximas semanas", style = MaterialTheme.typography.labelSmall, color = c.textMuted, modifier = Modifier.padding(top = Space.md, bottom = 4.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            (1..4).forEach { w ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    (0..6).forEach { i ->
+                        val d = monday.plusWeeks(w.toLong()).plusDays(i.toLong())
+                        val k = ((ignite.value * 1.7f) - 0.5f - w * 0.08f - i * 0.03f).coerceIn(0f, 1f)
+                        Box(
+                            Modifier.weight(1f).height(12.dp).clip(RoundedCornerShape(4.dp))
+                                .background(lerp(c.surfaceHigh, heatColor(dayLoad(d, rows, blocks)), k))
+                        )
+                    }
+                }
+            }
         }
         Box(Modifier.padding(vertical = Space.md).fillMaxWidth().height(1.dp).background(c.border))
-        // Detalle del día elegido
         AnimatedContent(
             targetState = sel,
-            transitionSpec = {
-                (fadeIn(Motion.enter(level)) + slideInVertically(Motion.enter(level)) { it / 4 }).togetherWith(fadeOut(Motion.exit(level)))
-            },
+            transitionSpec = { (fadeIn(Motion.enter(level)) + slideInVertically(Motion.enter(level)) { it / 4 }).togetherWith(fadeOut(Motion.exit(level))) },
             label = "weekDay",
         ) { i ->
             Column(Modifier.fillMaxWidth()) {
                 val d = days[i]
-                Text(
-                    d.dayOfWeek.getDisplayName(TextStyle.FULL, es).replaceFirstChar { it.uppercase() } + " ${d.dayOfMonth}" + if (d == today) " · hoy" else "",
-                    style = MaterialTheme.typography.labelMedium, color = c.accent,
-                )
-                if (perDay[i].isEmpty()) Text("Día libre de pendientes", style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(top = Space.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        d.dayOfWeek.getDisplayName(TextStyle.FULL, es).replaceFirstChar { it.uppercase() } + " ${d.dayOfMonth}" + if (d == today) " · hoy" else "",
+                        style = MaterialTheme.typography.labelMedium, color = c.text, modifier = Modifier.weight(1f),
+                    )
+                    Box(Modifier.clip(CircleShape).background(heatColor(loads[i]).copy(alpha = 0.25f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                        Text(heatLabel(loads[i]), style = MaterialTheme.typography.labelSmall, color = c.text)
+                    }
+                }
+                if (perDay[i].isEmpty()) Text("Sin pendientes ese día", style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(top = Space.xs))
                 perDay[i].forEach { r ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onEdit(r.id) }.padding(vertical = Space.sm),
@@ -553,6 +550,19 @@ private fun WeekBoard(rows: List<EventRow>, blocks: List<TimetableBlock>, onEdit
                 }
             }
         }
+    }
+}
+
+/** Barrita con la escala de calor: frío → caliente. */
+@Composable
+fun HeatLegend(modifier: Modifier = Modifier) {
+    val c = Agenda.colors
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Text("libre", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        Spacer(Modifier.width(4.dp))
+        Box(Modifier.width(56.dp).height(8.dp).clip(CircleShape).background(Brush.horizontalGradient(listOf(0f, 1.5f, 4f, 7f, 10f).map { heatColor(it) })))
+        Spacer(Modifier.width(4.dp))
+        Text("al tope", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
     }
 }
 

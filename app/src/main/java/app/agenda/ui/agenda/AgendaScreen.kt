@@ -1,6 +1,11 @@
 package app.agenda.ui.agenda
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -75,12 +80,15 @@ fun AgendaScreen(vm: AgendaViewModel, rows: List<EventRow>, onEdit: (String) -> 
     val groups = visible.groupBy { if (it.dueDate < today.toString() && it.doneAt == null) "0000-00-00" else it.dueDate }.toSortedMap()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // Grupos plegados (por fecha); se recuerdan al girar la pantalla.
+    var collapsed by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     // Examen: sacudida del tablero + destello ámbar. Tarea/recordatorio: solo su tarjeta.
     val shake = remember { Animatable(0f) }
     val flash = remember { Animatable(0f) }
     LaunchedEffect(justAdded) {
         val ja = justAdded ?: return@LaunchedEffect
+        collapsed = emptySet() // que lo nuevo no quede dentro de un día plegado
         // Que se vea lo que se acaba de agregar.
         if (filter == AgendaFilter.Done) vm.filter.value = AgendaFilter.Pending
         if (typeFilter != null && typeFilter != ja.type) vm.typeFilter.value = null
@@ -148,15 +156,17 @@ fun AgendaScreen(vm: AgendaViewModel, rows: List<EventRow>, onEdit: (String) -> 
                     verticalArrangement = Arrangement.spacedBy(Space.sm),
                 ) {
                     groups.forEach { (key, list) ->
+                        val isOverdue = key == "0000-00-00"
+                        val open = key !in collapsed
                         stickyHeader(key = "h$key") {
-                            Text(
-                                if (key == "0000-00-00") "Vencidas" else dayHeader(key, today),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (key == "0000-00-00") c.danger else c.textMuted,
-                                modifier = Modifier.fillMaxWidth().background(c.bg.copy(alpha = 0.92f)).padding(vertical = Space.sm),
+                            GroupHeader(
+                                text = if (isOverdue) "Vencidas" else dayHeader(key, today),
+                                count = list.size, open = open,
+                                color = if (isOverdue) c.danger else c.textMuted,
+                                onClick = { collapsed = if (open) collapsed + key else collapsed - key },
                             )
                         }
-                        items(list, key = { it.id }) { row ->
+                        if (open)                         items(list, key = { it.id }) { row ->
                             val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { v ->
                                 when (v) {
                                     SwipeToDismissBoxValue.EndToStart -> { vm.delete(row.id); true }
@@ -179,6 +189,29 @@ fun AgendaScreen(vm: AgendaViewModel, rows: List<EventRow>, onEdit: (String) -> 
         }
         // Destello ámbar del examen (no intercepta toques).
         if (flash.value > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = flash.value }.background(typeColor("exam")))
+    }
+}
+
+/**
+ * Encabezado de grupo: solo texto sobre fondo transparente. Tocarlo pliega o despliega el día;
+ * la flecha gira y, plegado, muestra cuántos hay.
+ */
+@Composable
+private fun GroupHeader(text: String, count: Int, open: Boolean, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    val level = LocalMotionLevel.current
+    val rot by animateFloatAsState(if (open) 0f else -90f, Motion.enter(level), label = "grpRot")
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelMedium, color = color, modifier = Modifier.weight(1f))
+        AnimatedVisibility(!open, enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+            Text("$count", style = MaterialTheme.typography.labelMedium, color = color, modifier = Modifier.padding(end = Space.xs))
+        }
+        Icon(
+            Icons.Outlined.ExpandMore, contentDescription = if (open) "Plegar" else "Desplegar", tint = color,
+            modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rot },
+        )
     }
 }
 

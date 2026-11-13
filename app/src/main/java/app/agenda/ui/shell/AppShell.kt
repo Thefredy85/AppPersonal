@@ -46,6 +46,7 @@ import app.agenda.ui.agenda.AgendaViewModel
 import app.agenda.ui.agenda.EventEditor
 import app.agenda.ui.common.DoneCelebration
 import app.agenda.ui.today.GreetingHeader
+import app.agenda.ui.calendar.CalendarScreen
 import app.agenda.ui.today.TodayScreen
 import app.agenda.data.TimetableBlock
 import app.agenda.ui.common.ConfirmAddDialog
@@ -169,6 +170,12 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
                             onOpenClass = { openOccurrence = it.occurrenceId },
                         )
                         Dest.Agenda -> AgendaScreen(agendaVm, rows, onEdit = { agendaVm.edit(it) })
+                        Dest.Calendar -> CalendarScreen(
+                            rows = rows, blocks = blocks,
+                            onToggle = { agendaVm.toggleDone(it) },
+                            onEdit = { agendaVm.edit(it) },
+                            onNew = { t, d -> agendaVm.newEvent(t, d) },
+                        )
                         Dest.More -> MoreScreen()
                         else -> ComingSoon(target)
                     }
