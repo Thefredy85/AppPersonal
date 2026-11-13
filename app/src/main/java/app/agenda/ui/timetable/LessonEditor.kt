@@ -197,10 +197,35 @@ fun LessonEditor(
                 Spacer(Modifier.height(Space.lg))
             }
 
-            SaveButton(saving = state.saving, onClick = {
+            var confirming by remember { mutableStateOf(false) }
+            var go by remember { mutableIntStateOf(0) }
+            SaveButton(saving = state.saving, trigger = go, onRequest = { confirming = true }, onClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onSave()
             })
+            if (confirming) {
+                val lines = buildList {
+                    state.groups.filter { it.days.isNotEmpty() }.forEach { g ->
+                        add(app.agenda.ui.common.SummaryLine(Icons.Outlined.Schedule, "${formatDays(g.days)} · ${g.start} → ${g.end}"))
+                    }
+                    if (state.room.isNotBlank()) add(app.agenda.ui.common.SummaryLine(Icons.Outlined.Place, "Aula ${state.room.trim()}"))
+                    add(app.agenda.ui.common.SummaryLine(
+                        if (state.remindMinutes != null) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsOff,
+                        state.remindMinutes?.let { "Aviso $it min antes" } ?: "Sin aviso",
+                    ))
+                    val n = findConflicts(state, blocks).size
+                    if (n > 0) add(app.agenda.ui.common.SummaryLine(Icons.Outlined.WarningAmber, "Se cruza con $n clase${if (n > 1) "s" else ""}"))
+                }
+                app.agenda.ui.common.ConfirmAddDialog(
+                    title = if (state.lessonId == null) "¿Agregar esta clase?" else "¿Guardar los cambios?",
+                    accent = color,
+                    headline = state.subjectName.ifBlank { "Clase sin nombre" },
+                    lines = lines,
+                    confirmLabel = if (state.lessonId == null) "Agregar" else "Guardar",
+                    onConfirm = { confirming = false; go++ },
+                    onDismiss = { confirming = false },
+                )
+            }
         }
     }
 }
@@ -362,21 +387,22 @@ private fun ReminderPicker(minutes: Int?, classStart: Int, onChange: (Int?) -> U
     }
 }
 
-/** Guardar: el botón se encoge hasta un círculo con palomita (M01) antes de cerrar el editor. */
+/** Guardar: pide confirmación; al confirmar, el botón se encoge hasta un círculo con palomita (M01) y guarda. */
 @Composable
-private fun SaveButton(saving: Boolean, onClick: () -> Unit) {
+private fun SaveButton(saving: Boolean, trigger: Int, onRequest: () -> Unit, onClick: () -> Unit) {
     val c = Agenda.colors
     val level = LocalMotionLevel.current
     var morph by remember { mutableStateOf(false) }
     val width by animateDpAsState(if (morph) 56.dp else 600.dp, Motion.enter(level, 300), label = "saveWidth")
     val radius by animateDpAsState(if (morph) 28.dp else 18.dp, Motion.enter(level, 300), label = "saveRadius")
+    LaunchedEffect(trigger) { if (trigger > 0) morph = true }
     LaunchedEffect(morph) { if (morph) { delay(260); onClick() } }
     LaunchedEffect(saving) { if (!saving) morph = false }
     Box(Modifier.fillMaxWidth().padding(Dimens.screenPadding), contentAlignment = Alignment.Center) {
         Box(
             Modifier.height(56.dp).widthIn(max = width).fillMaxWidth()
                 .clip(RoundedCornerShape(radius)).background(c.accent)
-                .clickable(enabled = !morph) { morph = true },
+                .clickable(enabled = !morph) { onRequest() },
             contentAlignment = Alignment.Center,
         ) {
             if (morph) Icon(Icons.Outlined.Check, contentDescription = "Guardando", tint = c.onAccent)

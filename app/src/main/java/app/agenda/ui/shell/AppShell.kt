@@ -73,6 +73,7 @@ fun AppShell(vm: TimetableViewModel) {
     val keepOn = app.keepScreenOn.value
     DisposableEffect(keepOn) { view.keepScreenOn = keepOn; onDispose { view.keepScreenOn = false } }
     var openOccurrence by remember { mutableStateOf<String?>(null) }
+    var confirmDuplicate by remember { mutableStateOf<app.agenda.data.TimetableBlock?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val ctx = LocalContext.current
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -152,6 +153,19 @@ fun AppShell(vm: TimetableViewModel) {
         )
     }
 
+    // Confirmación antes de duplicar (agregar) una clase
+    confirmDuplicate?.let { b ->
+        app.agenda.ui.common.ConfirmAddDialog(
+            title = "¿Duplicar esta clase?",
+            accent = subjectColor(b.colorArgb),
+            headline = b.subjectName,
+            lines = listOf(app.agenda.ui.common.SummaryLine(Icons.Outlined.ContentCopy, "Se crea una copia y se abre para editarla")),
+            confirmLabel = "Duplicar",
+            onConfirm = { confirmDuplicate = null; vm.duplicate(b.lessonId) },
+            onDismiss = { confirmDuplicate = null },
+        )
+    }
+
     // Hoja de detalle
     val sheetBlock = blocks.firstOrNull { it.occurrenceId == openOccurrence }
     if (sheetBlock != null) {
@@ -159,7 +173,7 @@ fun AppShell(vm: TimetableViewModel) {
             block = sheetBlock,
             allOfLesson = blocks.filter { it.lessonId == sheetBlock.lessonId },
             onEdit = { openOccurrence = null; vm.editLesson(sheetBlock.lessonId) },
-            onDuplicate = { openOccurrence = null; vm.duplicate(sheetBlock.lessonId) },
+            onDuplicate = { openOccurrence = null; confirmDuplicate = sheetBlock },
             onDelete = { openOccurrence = null; vm.delete(sheetBlock.lessonId) },
             onDismiss = { openOccurrence = null },
         )

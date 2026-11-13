@@ -44,6 +44,9 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+/** Paso del arrastre en el reloj: media hora. */
+const val SNAP = 30
+
 fun toMinutes(hhmm: String): Int = hhmm.split(":").let { it[0].toInt() * 60 + it[1].toInt() }
 fun toHhmm(m: Int): String = "%02d:%02d".format(m.coerceIn(0, 1439) / 60, m.coerceIn(0, 1439) % 60)
 
@@ -54,8 +57,9 @@ fun durationLabel(min: Int): String {
 
 /**
  * Reloj propio de 24 horas: dos puntos (inicio y fin) sobre un anillo.
- * El arco entre ambos se pinta del color de la clase. Ajuste de 5 en 5 minutos con vibración ligera.
- * Mover el inicio arrastra la clase entera (misma duración); mover el fin cambia la duración (mín. 15 min).
+ * El arco entre ambos se pinta del color de la clase. Al arrastrar, salta de media en media hora (vibración ligera).
+ * Los botones ± afinan de 5 en 5 min para horas exactas (p. ej. 10:15).
+ * Mover el inicio arrastra la clase entera (misma duración); mover el fin cambia la duración (mín. 30 min).
  */
 @Composable
 fun ClockDial(
@@ -85,7 +89,7 @@ fun ClockDial(
                         fun minuteAt(p: Offset): Int {
                             val x = p.x - size.width / 2f; val y = p.y - size.height / 2f
                             var a = atan2(x, -y); if (a < 0) a += (2 * PI).toFloat()
-                            return ((a / (2 * PI) * 1440 / 5).roundToInt() * 5) % 1440
+                            return ((a / (2 * PI) * 1440 / SNAP).roundToInt() * SNAP) % 1440
                         }
                         fun handlePos(m: Int): Offset {
                             val r = size.width * 0.40f; val a = m / 1440f * 2 * PI
@@ -104,9 +108,9 @@ fun ClockDial(
                                 val m = minuteAt(change.position)
                                 val (ns, ne) = if (dragging == 0) {
                                     val dur = e - s
-                                    val st = m.coerceAtMost(1435 - dur); st to st + dur
+                                    val st = m.coerceAtMost(1440 - SNAP - dur.coerceAtLeast(0)); st to st + dur
                                 } else {
-                                    s to (if (m <= s) s + 15 else m).coerceAtMost(1435)
+                                    s to (if (m <= s) s + SNAP else m).coerceAtMost(1435)
                                 }
                                 if (ns != s || ne != e) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)

@@ -22,7 +22,7 @@ fun busyRanges(state: EditorState, group: SlotGroup, blocks: List<TimetableBlock
     blocks.filter { it.lessonId != state.lessonId && it.weekday in group.days }
         .map { toMinutes(it.startTime) to toMinutes(it.endTime) }
 
-/** Primer inicio libre (mismo largo) a partir de la hora actual del grupo, de 5 en 5 min; null si no cabe hoy. */
+/** Primer inicio libre (mismo largo) después de la hora actual del grupo, en medias horas; null si no cabe hoy. */
 fun nextFreeStart(state: EditorState, groupIndex: Int, blocks: List<TimetableBlock>): Int? {
     val g = state.groups.getOrNull(groupIndex) ?: return null
     val dur = toMinutes(g.end) - toMinutes(g.start)
@@ -30,7 +30,7 @@ fun nextFreeStart(state: EditorState, groupIndex: Int, blocks: List<TimetableBlo
     var s = toMinutes(g.start)
     while (s + dur <= 1435) {
         if (busy.none { (bs, be) -> overlaps(s, s + dur, bs, be) }) return s
-        s += 5
+        s = (s / SNAP + 1) * SNAP
     }
     return null
 }
