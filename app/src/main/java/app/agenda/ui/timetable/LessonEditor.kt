@@ -343,9 +343,9 @@ private fun ColorPicker(selectedArgb: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** "Avisarme antes": regla de 0 a 60 min; la campana se agita y la hora del aviso rueda al cambiar. */
+/** "Avisarme antes": regla de 0 a 60 min; la campana se agita y la hora del aviso rueda al cambiar. Se usa en clases y en la agenda. */
 @Composable
-private fun ReminderPicker(minutes: Int?, classStart: Int, onChange: (Int?) -> Unit) {
+fun ReminderPicker(minutes: Int?, classStart: Int, onChange: (Int?) -> Unit) {
     val c = Agenda.colors
     val level = LocalMotionLevel.current
     val haptics = LocalHapticFeedback.current

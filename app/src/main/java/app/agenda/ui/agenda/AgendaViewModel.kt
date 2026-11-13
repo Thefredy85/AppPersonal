@@ -21,9 +21,10 @@ data class EventEditorState(
     val title: String = "",
     val subjectId: String? = null,
     val dueDate: String = LocalDate.now().plusDays(1).toString(),
-    val dueTime: String? = null,
+    val dueTime: String? = "08:00",
     val note: String = "",
-    val reminders: List<String> = emptyList(),
+    /** Aviso anclado a la hora de entrega: tantos minutos antes (null = sin aviso). */
+    val remindMinutes: Int? = 10,
     val subtasks: List<Pair<String, Boolean>> = emptyList(),
     val done: Boolean = false,
     val error: String? = null,
@@ -54,16 +55,22 @@ class AgendaViewModel(private val repo: EventRepository, context: Context) : Vie
     private val _justDone = MutableStateFlow<Set<String>>(emptySet())
     val justDone: StateFlow<Set<String>> = _justDone.asStateFlow()
 
-    fun newEvent(date: LocalDate? = null) {
-        val draft = readDraft()
-        _editor.value = draft?.copy(restoredDraft = true) ?: EventEditorState(dueDate = (date ?: LocalDate.now().plusDays(1)).toString())
+    fun newEvent(type: String = "homework", date: LocalDate? = null) {
+        val draft = readDraft()?.takeIf { it.type == type }
+        _editor.value = draft?.copy(restoredDraft = true)
+            ?: EventEditorState(type = type, dueDate = (date ?: LocalDate.now().plusDays(1)).toString())
     }
 
     fun edit(id: String) = viewModelScope.launch {
         val (e, rem, subs) = repo.load(id) ?: return@launch
         _editor.value = EventEditorState(
             id = e.id, type = e.type, title = e.title, subjectId = e.subjectId, dueDate = e.dueDate, dueTime = e.dueTime,
-            note = e.note.orEmpty(), reminders = rem.map { it.remindAtLocal }, subtasks = subs.map { it.title to it.done },
+            note = e.note.orEmpty(), subtasks = subs.map { it.title to it.done },
+            remindMinutes = rem.firstOrNull()?.let { r ->
+                val due = java.time.LocalDateTime.parse("${e.dueDate}T${e.dueTime ?: "08:00"}")
+                val m = java.time.Duration.between(java.time.LocalDateTime.parse(r.remindAtLocal), due).toMinutes().toInt()
+                ((m / 5) * 5).coerceIn(5, 60)
+            },
             done = e.doneAt != null,
         )
     }
@@ -79,13 +86,18 @@ class AgendaViewModel(private val repo: EventRepository, context: Context) : Vie
         }
     }
 
-    fun discardDraft() { drafts.edit().remove("nueva").apply(); _editor.value = EventEditorState() }
+    fun discardDraft() { drafts.edit().remove("nueva").apply(); _editor.update { it?.let { EventEditorState(type = it.type) } } }
     fun close() { _editor.value = null }
 
     fun save() = viewModelScope.launch {
         val s = _editor.value ?: return@launch
+        if (s.type == "exam" && s.subjectId == null) { _editor.value = s.copy(error = "Elige la asignatura del examen"); return@launch }
         _editor.value = s.copy(saving = true)
-        repo.save(EventDraft(s.id, s.type, s.title, s.subjectId, s.dueDate, s.dueTime, s.note, s.reminders, s.subtasks, s.done))
+        val time = s.dueTime ?: "08:00"
+        val reminders = s.remindMinutes?.let { m -> listOf(java.time.LocalDateTime.parse("${s.dueDate}T$time").minusMinutes(m.toLong()).toString().take(16)) } ?: emptyList()
+        // Las subtareas solo existen en las tareas.
+        val subtasks = if (s.type == "homework") s.subtasks else emptyList()
+        repo.save(EventDraft(s.id, s.type, s.title, if (s.type == "reminder") null else s.subjectId, s.dueDate, time, s.note, reminders, subtasks, s.done))
             .onSuccess { if (s.id == null) drafts.edit().remove("nueva").apply(); _editor.value = null }
             .onFailure { _editor.value = s.copy(saving = false, error = it.message) }
     }
@@ -108,7 +120,7 @@ class AgendaViewModel(private val repo: EventRepository, context: Context) : Vie
         val j = JSONObject()
             .put("type", s.type).put("title", s.title).put("subjectId", s.subjectId ?: JSONObject.NULL)
             .put("dueDate", s.dueDate).put("dueTime", s.dueTime ?: JSONObject.NULL).put("note", s.note)
-            .put("reminders", JSONArray(s.reminders))
+            .put("remind", s.remindMinutes ?: -1)
             .put("subtasks", JSONArray(s.subtasks.map { JSONObject().put("t", it.first).put("d", it.second) }))
         drafts.edit().putString("nueva", j.toString()).apply()
     }
@@ -116,14 +128,14 @@ class AgendaViewModel(private val repo: EventRepository, context: Context) : Vie
     private fun readDraft(): EventEditorState? = runCatching {
         val raw = drafts.getString("nueva", null) ?: return null
         val j = JSONObject(raw)
-        val rem = j.getJSONArray("reminders"); val sub = j.getJSONArray("subtasks")
+        val sub = j.getJSONArray("subtasks")
         EventEditorState(
             type = j.getString("type"), title = j.getString("title"),
             subjectId = j.optString("subjectId").takeIf { !j.isNull("subjectId") && it.isNotEmpty() },
             dueDate = j.getString("dueDate"),
             dueTime = j.optString("dueTime").takeIf { !j.isNull("dueTime") && it.isNotEmpty() },
             note = j.getString("note"),
-            reminders = (0 until rem.length()).map { rem.getString(it) },
+            remindMinutes = j.optInt("remind", 10).takeIf { it > 0 },
             subtasks = (0 until sub.length()).map { sub.getJSONObject(it).let { o -> o.getString("t") to o.getBoolean("d") } },
         )
     }.getOrNull()

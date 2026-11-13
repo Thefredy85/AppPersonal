@@ -9,6 +9,9 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -110,13 +113,9 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
             snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = Dimens.bottomBar)) },
             floatingActionButton = {
                 if (dest == Dest.Today || dest == Dest.Agenda) {
-                    ExtendedFloatingActionButton(
-                        onClick = { agendaVm.newEvent() },
-                        containerColor = c.accent, contentColor = c.onAccent,
-                        shape = MaterialTheme.shapes.large,
+                    AddMenu(
                         modifier = Modifier.padding(bottom = Dimens.bottomBar),
-                        icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                        text = { Text("Anotar") },
+                        onPick = { type -> agendaVm.newEvent(type) },
                     )
                 } else if (dest == Dest.Timetable && blocks.isNotEmpty()) {
                     FloatingActionButton(
@@ -214,7 +213,8 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
     // Editor de tareas a pantalla completa
     eventEditor?.let { st ->
         EventEditor(
-            state = st, subjects = subjects,
+            state = st, subjects = subjects, blocks = blocks,
+            busyDays = rows.filter { it.doneAt == null }.map { it.dueDate }.toSet(),
             onChange = { agendaVm.update(it) }, onSave = { agendaVm.save() },
             onDiscardDraft = { agendaVm.discardDraft() }, onClose = { agendaVm.close() },
         )
@@ -282,3 +282,48 @@ private fun ComingSoon(d: Dest) {
     }
 }
 
+
+
+/** "Anotar": se despliega en Tarea, Examen y Recordatorio (entran escalonadas con un muelle ligero). */
+@Composable
+private fun AddMenu(modifier: Modifier = Modifier, onPick: (String) -> Unit) {
+    val c = Agenda.colors
+    val level = LocalMotionLevel.current
+    var open by remember { mutableStateOf(false) }
+    val rot by animateFloatAsState(if (open) 45f else 0f, Motion.light(level), label = "fabRot")
+    val options = listOf(
+        Triple("reminder", "Recordatorio", Icons.Outlined.NotificationsNone),
+        Triple("exam", "Examen", Icons.Outlined.Quiz),
+        Triple("homework", "Tarea", Icons.Outlined.Assignment),
+    )
+    Column(modifier, horizontalAlignment = Alignment.End) {
+        options.forEachIndexed { i, (type, label, icon) ->
+            val delayMs = (options.size - 1 - i) * Motion.StaggerMs
+            AnimatedVisibility(
+                visible = open,
+                enter = fadeIn(Motion.enter(level, 180 + delayMs)) + scaleIn(Motion.enter(level, 200 + delayMs), initialScale = 0.6f) +
+                    slideInVertically(Motion.enter(level, 200 + delayMs)) { it / 2 },
+                exit = fadeOut(Motion.exit(level, 120)) + scaleOut(Motion.exit(level, 120), targetScale = 0.8f),
+            ) {
+                Row(
+                    Modifier.padding(bottom = Space.md).clip(MaterialTheme.shapes.large)
+                        .glassSurface(c, MaterialTheme.shapes.large, strong = true)
+                        .clickable { open = false; onPick(type) }
+                        .padding(horizontal = Space.lg, vertical = Space.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, style = MaterialTheme.typography.titleMedium, color = c.text)
+                    Spacer(Modifier.width(Space.md))
+                    Icon(icon, contentDescription = null, tint = c.accent)
+                }
+            }
+        }
+        ExtendedFloatingActionButton(
+            onClick = { open = !open },
+            containerColor = c.accent, contentColor = c.onAccent,
+            shape = MaterialTheme.shapes.large,
+            icon = { Icon(Icons.Outlined.Add, contentDescription = if (open) "Cerrar menú" else "Anotar", modifier = Modifier.graphicsLayer { rotationZ = rot }) },
+            text = { Text(if (open) "Cerrar" else "Anotar") },
+        )
+    }
+}
