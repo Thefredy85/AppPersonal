@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.agenda.ui.shell.AppShell
+import app.agenda.ui.agenda.AgendaViewModel
 import app.agenda.ui.theme.AgendaTheme
 import app.agenda.ui.theme.LocalMotionLevel
 import app.agenda.ui.theme.ThemeMode
@@ -27,12 +28,19 @@ class MainActivity : ComponentActivity() {
 
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T = TimetableViewModel(app.repository) as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = when (modelClass) {
+                TimetableViewModel::class.java -> TimetableViewModel(app.repository)
+                AgendaViewModel::class.java -> AgendaViewModel(app.events, applicationContext)
+                else -> error("ViewModel desconocido: $modelClass")
+            } as T
         }
         setContent {
             AgendaTheme(mode = ThemeMode.Dark) {
                 CompositionLocalProvider(LocalMotionLevel provides app.motionLevel.value) {
-                    AppShell(viewModel(factory = factory))
+                    AppShell(
+                        vm = viewModel<TimetableViewModel>(factory = factory),
+                        agendaVm = viewModel<AgendaViewModel>(factory = factory),
+                    )
                 }
             }
         }

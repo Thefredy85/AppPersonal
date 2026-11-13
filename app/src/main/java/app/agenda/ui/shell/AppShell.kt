@@ -38,6 +38,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.agenda.AgendaApp
+import app.agenda.ui.agenda.AgendaScreen
+import app.agenda.ui.agenda.AgendaViewModel
+import app.agenda.ui.agenda.EventEditor
+import app.agenda.ui.today.TodayScreen
 import app.agenda.data.TimetableBlock
 import app.agenda.ui.common.ConfirmAddDialog
 import app.agenda.ui.common.SummaryLine
@@ -60,11 +64,13 @@ enum class Dest(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun AppShell(vm: TimetableViewModel) {
+fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
     val c = Agenda.colors
     val level = LocalMotionLevel.current
-    // M1: el horario es la pantalla principal; Hoy, Agenda y Calendario llegan en M2.
-    var dest by rememberSaveable { mutableStateOf(Dest.Timetable) }
+    var dest by rememberSaveable { mutableStateOf(Dest.Today) }
+    val rows by agendaVm.rows.collectAsStateWithLifecycle()
+    val eventEditor by agendaVm.editor.collectAsStateWithLifecycle()
+    val lastDeletedEvent by agendaVm.lastDeleted.collectAsStateWithLifecycle()
     val blocks by vm.blocks.collectAsStateWithLifecycle()
     val subjects by vm.subjects.collectAsStateWithLifecycle()
     val editor by vm.editor.collectAsStateWithLifecycle()
@@ -82,6 +88,13 @@ fun AppShell(vm: TimetableViewModel) {
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     LaunchedEffect(Unit) { update = UpdateChecker.check(ctx).getOrNull() }
 
+    LaunchedEffect(lastDeletedEvent) {
+        if (lastDeletedEvent != null) {
+            val r = snackbar.showSnackbar("Borrada", actionLabel = "Deshacer", duration = SnackbarDuration.Long)
+            if (r == SnackbarResult.ActionPerformed) agendaVm.undoDelete() else agendaVm.clearDeleted()
+        }
+    }
+
     LaunchedEffect(lastDeleted) {
         if (lastDeleted != null) {
             val r = snackbar.showSnackbar("Clase borrada", actionLabel = "Deshacer", duration = SnackbarDuration.Long)
@@ -96,7 +109,16 @@ fun AppShell(vm: TimetableViewModel) {
             containerColor = c.bg.copy(alpha = 0f),
             snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = Dimens.bottomBar)) },
             floatingActionButton = {
-                if (dest == Dest.Timetable && blocks.isNotEmpty()) {
+                if (dest == Dest.Today || dest == Dest.Agenda) {
+                    ExtendedFloatingActionButton(
+                        onClick = { agendaVm.newEvent() },
+                        containerColor = c.accent, contentColor = c.onAccent,
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.padding(bottom = Dimens.bottomBar),
+                        icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                        text = { Text("Anotar") },
+                    )
+                } else if (dest == Dest.Timetable && blocks.isNotEmpty()) {
                     FloatingActionButton(
                         onClick = { vm.newLesson() },
                         containerColor = c.accent, contentColor = c.onAccent,
@@ -129,6 +151,13 @@ fun AppShell(vm: TimetableViewModel) {
                             onEmptySlot = { day, start -> vm.newLesson(day, start) },
                             onEmptyCreate = { vm.newLesson() },
                         )
+                        Dest.Today -> TodayScreen(
+                            blocks = blocks, rows = rows,
+                            onToggle = { agendaVm.toggleDone(it) },
+                            onEditEvent = { agendaVm.edit(it) },
+                            onOpenClass = { openOccurrence = it.occurrenceId },
+                        )
+                        Dest.Agenda -> AgendaScreen(agendaVm, rows, onEdit = { agendaVm.edit(it) })
                         Dest.More -> MoreScreen()
                         else -> ComingSoon(target)
                     }
@@ -179,6 +208,15 @@ fun AppShell(vm: TimetableViewModel) {
             onDuplicate = { openOccurrence = null; confirmDuplicate = sheetBlock },
             onDelete = { openOccurrence = null; vm.delete(sheetBlock.lessonId) },
             onDismiss = { openOccurrence = null },
+        )
+    }
+
+    // Editor de tareas a pantalla completa
+    eventEditor?.let { st ->
+        EventEditor(
+            state = st, subjects = subjects,
+            onChange = { agendaVm.update(it) }, onSave = { agendaVm.save() },
+            onDiscardDraft = { agendaVm.discardDraft() }, onClose = { agendaVm.close() },
         )
     }
 
