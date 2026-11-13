@@ -83,6 +83,17 @@ fun MoreScreen() {
     ) {
         VersionHeader()
 
+        Section("Tu nombre")
+        var name by remember { mutableStateOf(app.userName.value) }
+        OutlinedTextField(
+            value = name,
+            onValueChange = { v -> name = v.take(30); app.userName.value = name.trim(); app.prefs.userName = name },
+            placeholder = { Text("Cómo quieres que te salude") },
+            leadingIcon = { Icon(Icons.Outlined.Face, contentDescription = null) },
+            supportingText = { Text("Aparece en Hoy: \"${periodOf(java.time.LocalTime.now().let { it.hour * 60 + it.minute }).greeting}${if (name.isBlank()) "" else ", " + name.trim()}\"") },
+            singleLine = true, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
+        )
+
         Section("Estado de avisos")
         val checks = listOf(
             Check("Notificaciones", "Para ver los avisos de clase.", notifOk) {

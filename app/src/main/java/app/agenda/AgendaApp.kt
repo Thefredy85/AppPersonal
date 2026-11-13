@@ -21,12 +21,14 @@ class AgendaApp : Application() {
     /** Estado observable de los ajustes de apariencia (cambian en vivo desde "Más"). */
     val motionLevel = mutableStateOf(app.agenda.ui.theme.MotionLevel.Full)
     val keepScreenOn = mutableStateOf(true)
+    val userName = mutableStateOf("")
 
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
         motionLevel.value = prefs.motionLevel
         keepScreenOn.value = prefs.keepScreenOn
+        userName.value = prefs.userName
         AlarmScheduler.createChannel(this)
         alarms = AlarmScheduler(this)
         val db = AgendaDatabase.create(this)

@@ -76,6 +76,9 @@ fun EventEditorState.expandDates(): List<String> {
 
 enum class AgendaFilter(val label: String) { Pending("Pendientes"), Done("Hechas"), All("Todo") }
 
+/** Algo recién marcado como hecho: la app lo festeja. */
+data class Completed(val type: String, val title: String, val stamp: Long = System.nanoTime())
+
 /** Lo recién agregado: el tablero lo "plasma" con una animación según su tipo. */
 data class JustAdded(val ids: Set<String>, val type: String, val stamp: Long = System.nanoTime())
 
@@ -99,6 +102,10 @@ class AgendaViewModel(private val repo: EventRepository, context: Context) : Vie
     private val _justAdded = MutableStateFlow<JustAdded?>(null)
     val justAdded: StateFlow<JustAdded?> = _justAdded.asStateFlow()
     fun clearJustAdded() { _justAdded.value = null }
+
+    private val _completed = MutableStateFlow<Completed?>(null)
+    val completed: StateFlow<Completed?> = _completed.asStateFlow()
+    fun clearCompleted() { _completed.value = null }
 
     fun newEvent(type: String = "homework", date: LocalDate? = null) {
         val draft = readDraft()?.takeIf { it.type == type }
@@ -194,6 +201,7 @@ class AgendaViewModel(private val repo: EventRepository, context: Context) : Vie
 
     fun toggleDone(row: EventRow) = viewModelScope.launch {
         val done = row.doneAt == null
+        if (done) _completed.value = Completed(row.type, row.title)
         // M01: la fila termina su animación antes de salir de "Pendientes".
         delay(if (done) 650 else 0)
         repo.setDone(row.id, done)

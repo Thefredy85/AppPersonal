@@ -26,7 +26,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -81,6 +83,7 @@ fun TodayScreen(
         if (todayPendingCount > 0) hadPending = true
         else if (hadPending && dueToday.isNotEmpty() && prefs.getString("festejo", null) != todayStr) {
             prefs.edit().putString("festejo", todayStr).apply()
+            delay(1_900) // después del "¡Felicidades!" de la última tarea
             celebrate = true; delay(3_200); celebrate = false
         }
     }
@@ -90,9 +93,7 @@ fun TodayScreen(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(horizontal = Dimens.screenPadding).padding(bottom = Dimens.bottomBar + Space.x4)
         ) {
-            val dayName = today.dayOfWeek.getDisplayName(TextStyle.FULL, es).replaceFirstChar { it.uppercase() }
-            Text("$dayName ${today.dayOfMonth} de ${today.month.getDisplayName(TextStyle.FULL, es)}", style = MaterialTheme.typography.bodyLarge, color = c.textMuted)
-            Spacer(Modifier.height(Space.md))
+            Spacer(Modifier.height(Space.sm))
 
             NowCard(current, next, nowMin, onOpenClass)
 
@@ -123,6 +124,48 @@ fun TodayScreen(
 
         AnimatedVisibility(celebrate, enter = fadeIn() + scaleIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.Center)) {
             Celebration()
+        }
+    }
+}
+
+/**
+ * Saludo de Hoy según la hora (Buenos días / Buenas tardes / Buenas noches) con tu nombre.
+ * A la izquierda, una ventanita con el cielo de ahora (sol o luna); el nombre lleva el degradado de ese cielo
+ * y entra deslizándose después del saludo. Se actualiza solo al cambiar de periodo.
+ */
+@Composable
+fun GreetingHeader(name: String, modifier: Modifier = Modifier) {
+    val c = Agenda.colors
+    val level = LocalMotionLevel.current
+    var nowMin by remember { mutableIntStateOf(LocalTime.now().let { it.hour * 60 + it.minute }) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); nowMin = LocalTime.now().let { it.hour * 60 + it.minute } } }
+    val period = periodOf(nowMin)
+    val today = LocalDate.now()
+    val enter = remember { Animatable(if (level == MotionLevel.Full) 0f else 1f) }
+    LaunchedEffect(Unit) { enter.animateTo(1f, tween(700, easing = Motion.EaseEmphasized)) }
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        SkyCanvas(
+            nowMin,
+            Modifier.size(64.dp).graphicsLayer { scaleX = 0.6f + 0.4f * enter.value; scaleY = scaleX; rotationZ = -20f * (1f - enter.value) }
+                .clip(MaterialTheme.shapes.large),
+        )
+        Spacer(Modifier.width(Space.md))
+        Column(Modifier.weight(1f)) {
+            RollingText(
+                period.greeting + if (name.isBlank()) "" else ",",
+                MaterialTheme.typography.titleLarge, c.textMuted,
+            )
+            if (name.isNotBlank()) Text(
+                name,
+                style = MaterialTheme.typography.displaySmall.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    brush = Brush.linearGradient(listOf(period.accent, period.skyTop, period.skyBottom)),
+                ),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.graphicsLayer { alpha = enter.value; translationX = (1f - enter.value) * 40.dp.toPx() },
+            )
+            val dayName = today.dayOfWeek.getDisplayName(TextStyle.FULL, es).replaceFirstChar { it.uppercase() }
+            Text("$dayName ${today.dayOfMonth} de ${today.month.getDisplayName(TextStyle.FULL, es)}", style = MaterialTheme.typography.bodyMedium, color = c.textMuted)
         }
     }
 }

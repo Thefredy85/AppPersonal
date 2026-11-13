@@ -1,6 +1,10 @@
 package app.agenda.ui.timetable
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import app.agenda.ui.common.PeriodPill
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -80,8 +84,12 @@ fun ClockDial(
     val latest by rememberUpdatedState(start to end)
     val onChangeLatest by rememberUpdatedState(onChange)
 
+    val period = periodOf(start)
+    val onSky by animateColorAsState(period.onSky, Motion.enter(level, Motion.Slow), label = "onSky")
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(260.dp), contentAlignment = Alignment.Center) {
+            // Cielo según la hora de inicio: amanecer, mediodía o noche.
+            SkyCanvas(start, Modifier.size(140.dp).clip(CircleShape))
             Canvas(
                 Modifier.fillMaxSize()
                     .semantics { contentDescription = "Reloj: de ${toHhmm(start)} a ${toHhmm(end)}" }
@@ -161,12 +169,12 @@ fun ClockDial(
                 dot(start, startScale); dot(end, endScale)
             }
             // Centro: horas que ruedan al cambiar (M04/M13)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                RollingText(toHhmm(start), MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold), c.text)
-                Text("hasta ${toHhmm(end)}", style = MaterialTheme.typography.bodyMedium, color = c.textMuted)
-                Text(durationLabel(end - start), style = MaterialTheme.typography.labelMedium, color = c.accent)
+            Column(Modifier.offset(y = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RollingText(toHhmm(start), MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold), onSky)
+                Text("hasta ${toHhmm(end)} · ${durationLabel(end - start)}", style = MaterialTheme.typography.labelMedium, color = onSky.copy(alpha = 0.85f))
             }
         }
+        PeriodPill(period)
         // Ajuste fino accesible (sin arrastrar)
         Row(verticalAlignment = Alignment.CenterVertically) {
             FineTune("Inicio", { onChange((start - 5).coerceAtLeast(0), (end - 5).coerceAtLeast(15)) }, { if (end + 5 <= 1435) onChange(start + 5, end + 5) })

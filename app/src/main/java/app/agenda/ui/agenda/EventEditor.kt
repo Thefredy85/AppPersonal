@@ -110,7 +110,7 @@ fun EventEditor(
     val c = Agenda.colors
     val level = LocalMotionLevel.current
     val haptics = LocalHapticFeedback.current
-    var open by remember { mutableStateOf<String?>("date") } // "date" | "time" | "until" | null
+    var open by remember { mutableStateOf<String?>(null) } // "date" | "time" | "until" | null
     var confirming by remember { mutableStateOf(false) }
     var confirmSeriesDelete by remember { mutableStateOf(false) }
     val isTask = state.type == "homework"; val isExam = state.type == "exam"; val isReminder = state.type == "reminder"
@@ -202,28 +202,22 @@ fun EventEditor(
                 // Cuándo, a qué hora y si se repite
                 Label("Cuándo y a qué hora")
                 if (isNew) RepeatSelector(state, typeCol, onChange)
-                GlassCard {
-                    WhenSection(state, accent, busyDays, open, onOpen = { open = if (open == it) null else it }, onChange = onChange, classOn = ::classOn)
-                    PickerRow(Icons.Outlined.Schedule, state.time, open == "time", accent) { open = if (open == "time") null else "time" }
-                    AnimatedVisibility(open == "time", enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                        SingleTimeDial(
-                            minutes = toMinutes(state.time), color = accent,
-                            onChange = { m -> onChange { it.copy(time = toHhmm(m)) } },
-                            modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
-                        )
-                    }
-                    if (classThatDay != null) {
+                WhenSection(state, accent, busyDays, open, onOpen = { open = if (open == it) null else it }, onChange = onChange, classOn = ::classOn)
+                if (classThatDay != null) {
+                    Row(Modifier.padding(top = Space.sm), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.School, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(Space.xs))
                         Text(
                             "Ese día tienes ${classThatDay.subjectName} de ${classThatDay.startTime} a ${classThatDay.endTime}",
-                            style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(top = Space.xs),
+                            style = MaterialTheme.typography.bodyMedium, color = c.textMuted,
                         )
                     }
-                    AnimatedVisibility(isNew && instances.size > 1) {
-                        Row(Modifier.padding(top = Space.sm), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Repeat, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(Space.sm))
-                            RollingText("Se crearán ${instances.size}", MaterialTheme.typography.labelMedium, c.text)
-                        }
+                }
+                AnimatedVisibility(isNew && instances.size > 1) {
+                    Row(Modifier.padding(top = Space.sm), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Repeat, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(Space.sm))
+                        RollingText("Se crearán ${instances.size}", MaterialTheme.typography.labelMedium, c.text)
                     }
                 }
 
@@ -430,7 +424,12 @@ private fun RepeatSelector(state: EventEditorState, color: Color, onChange: ((Ev
     }
 }
 
-/** Fecha(s): una, varias (con número de orden) o días de la semana + "hasta". */
+/**
+ * Cuándo y a qué hora, en dos mosaicos:
+ *  - Fecha: mes, número grande, día de la semana y "en N días" (o cuántas fechas / qué días si se repite).
+ *  - Hora: el cielo del momento del día (sol o luna en su arco) con la hora encima.
+ * Tocar uno lo destaca y despliega debajo su calendario o su reloj; abajo, la cuenta atrás.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WhenSection(
@@ -439,58 +438,110 @@ private fun WhenSection(
     classOn: (String?, String) -> TimetableBlock?,
 ) {
     val c = Agenda.colors
+    val level = LocalMotionLevel.current
     val haptics = LocalHapticFeedback.current
     val repeat = state.repeat
     val multi = repeat == Repeat.Dates
     val weekly = repeat == Repeat.Weekly || repeat == Repeat.Routine
-    val dateText = when {
-        multi && state.dates.size > 1 -> state.dates.sorted().joinToString(" · ") { shortDate(it) }
-        weekly -> "Empieza ${prettyDate(state.dueDate)}"
-        else -> prettyDate(state.dueDate)
-    }
-    PickerRow(Icons.Outlined.CalendarMonth, dateText, open == "date", accent) { onOpen("date") }
-    AnimatedVisibility(open == "date", enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-        Column {
-            if (multi) Text(
-                if (state.type == "exam") "Toca los días del examen (${state.dates.size}/$MAX_EXAM_DATES)" else "Toca todos los días que quieras (${state.dates.size})",
-                style = MaterialTheme.typography.labelMedium, color = c.textMuted, modifier = Modifier.padding(top = Space.sm),
-            )
-            MonthCalendar(
-                selected = LocalDate.parse(state.dueDate), color = accent, busyDays = busyDays,
-                multiSelected = if (multi) state.dates.map { LocalDate.parse(it) } else emptyList(),
-                showShortcuts = !multi,
-                onSelect = { d ->
-                    val iso = d.toString()
-                    onChange { st ->
-                        if (multi) {
-                            val has = iso in st.dates
-                            val limit = if (st.type == "exam") MAX_EXAM_DATES else 60
-                            val next = when {
-                                has && st.dates.size > 1 -> st.dates - iso
-                                has -> st.dates
-                                st.dates.size >= limit -> { haptics.performHapticFeedback(HapticFeedbackType.LongPress); st.dates }
-                                else -> st.dates + iso
-                            }
-                            st.copy(dates = next.sorted())
-                        } else {
-                            val t = if (st.type == "exam") classOn(st.subjectId, iso)?.startTime ?: st.time else st.time
-                            st.copy(dates = listOf(iso), time = t, repeatDays = if (weekly && st.repeatDays.isEmpty()) setOf(d.dayOfWeek.value) else st.repeatDays)
-                        }
-                    }
-                },
-                modifier = Modifier.padding(vertical = Space.sm),
-            )
+    val minutes = toMinutes(state.time)
+
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+        WhenTile(selected = open == "date", dimmed = open == "time", accent = accent, modifier = Modifier.weight(1f), onClick = { onOpen("date") }) {
+            DateTileContent(state, multi, weekly, accent)
+        }
+        WhenTile(selected = open == "time", dimmed = open == "date", accent = accent, modifier = Modifier.weight(1f), onClick = { onOpen("time") }, padded = false) {
+            Box(Modifier.fillMaxWidth().weight(1f).heightIn(min = 132.dp)) {
+                SkyCanvas(minutes, Modifier.matchParentSize())
+                val p = periodOf(minutes)
+                val onSky by animateColorAsState(p.onSky, Motion.enter(level, Motion.Slow), label = "tileOnSky")
+                Column(Modifier.align(Alignment.BottomStart).padding(Space.md)) {
+                    RollingText(state.time, MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), onSky)
+                    RollingText(p.label, MaterialTheme.typography.labelMedium, onSky.copy(alpha = 0.85f))
+                }
+            }
         }
     }
+    Countdown(state.dueDate, state.time, accent)
+
+    AnimatedContent(
+        targetState = open,
+        transitionSpec = {
+            (fadeIn(Motion.enter(level)) + expandVertically(Motion.enter(level)) + scaleIn(Motion.enter(level), initialScale = 0.97f))
+                .togetherWith(fadeOut(Motion.exit(level)) + shrinkVertically(Motion.exit(level)))
+        },
+        label = "whenPanel",
+    ) { panel ->
+        when (panel) {
+            "date" -> GlassCard(Modifier.padding(top = Space.md)) {
+                if (multi) Text(
+                    if (state.type == "exam") "Toca los días del examen (${state.dates.size}/$MAX_EXAM_DATES)" else "Toca todos los días que quieras (${state.dates.size})",
+                    style = MaterialTheme.typography.labelMedium, color = c.textMuted,
+                )
+                MonthCalendar(
+                    selected = LocalDate.parse(state.dueDate), color = accent, busyDays = busyDays,
+                    multiSelected = if (multi) state.dates.map { LocalDate.parse(it) } else emptyList(),
+                    showShortcuts = !multi,
+                    onSelect = { d ->
+                        val iso = d.toString()
+                        onChange { st ->
+                            if (multi) {
+                                val has = iso in st.dates
+                                val limit = if (st.type == "exam") MAX_EXAM_DATES else 60
+                                val next = when {
+                                    has && st.dates.size > 1 -> st.dates - iso
+                                    has -> st.dates
+                                    st.dates.size >= limit -> { haptics.performHapticFeedback(HapticFeedbackType.LongPress); st.dates }
+                                    else -> st.dates + iso
+                                }
+                                st.copy(dates = next.sorted())
+                            } else {
+                                val t = if (st.type == "exam") classOn(st.subjectId, iso)?.startTime ?: st.time else st.time
+                                st.copy(dates = listOf(iso), time = t, repeatDays = if (weekly && st.repeatDays.isEmpty()) setOf(d.dayOfWeek.value) else st.repeatDays)
+                            }
+                        }
+                    },
+                    modifier = Modifier.padding(vertical = Space.sm),
+                )
+            }
+            "time" -> GlassCard(Modifier.padding(top = Space.md)) {
+                SingleTimeDial(
+                    minutes = minutes, color = accent,
+                    onChange = { m -> onChange { it.copy(time = toHhmm(m)) } },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
+                )
+                // Atajos por momento del día
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                    listOf("07:00", "13:00", "18:00", "21:00").forEach { t ->
+                        val p = periodOf(t)
+                        val sel = state.time == t
+                        Row(
+                            Modifier.weight(1f).clip(RoundedCornerShape(999.dp))
+                                .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(p.skyTop, p.skyBottom)))
+                                .then(if (sel) Modifier.border(2.dp, c.text, RoundedCornerShape(999.dp)) else Modifier)
+                                .clickable { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onChange { it.copy(time = t) } }
+                                .padding(vertical = Space.sm),
+                            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(p.icon, contentDescription = null, tint = p.onSky, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(t, style = MaterialTheme.typography.labelMedium, color = p.onSky)
+                        }
+                    }
+                }
+            }
+            else -> Spacer(Modifier.height(0.dp))
+        }
+    }
+
     AnimatedVisibility(weekly, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-        Column(Modifier.padding(vertical = Space.sm)) {
+        GlassCard(Modifier.padding(top = Space.md)) {
             Text(if (repeat == Repeat.Routine) "Rutina · qué días" else "Cada semana · qué días", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
             Spacer(Modifier.height(Space.sm))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 (1..7).forEach { dow ->
                     val sel = dow in state.repeatDays
                     val bg by animateColorAsState(if (sel) accent else c.surfaceHigh, label = "dow$dow")
-                    val s by animateFloatAsState(if (sel) 1f else 0.9f, Motion.light(LocalMotionLevel.current), label = "dows$dow")
+                    val s by animateFloatAsState(if (sel) 1f else 0.9f, Motion.light(level), label = "dows$dow")
                     Box(
                         Modifier.size(40.dp).graphicsLayer { scaleX = s; scaleY = s }.clip(CircleShape).background(bg)
                             .clickable {
@@ -510,6 +561,82 @@ private fun WhenSection(
                 )
             }
         }
+    }
+}
+
+/** Mosaico tocable: al elegirlo se enmarca y crece un poco; el otro se encoge y se atenúa. */
+@Composable
+private fun WhenTile(
+    selected: Boolean, dimmed: Boolean, accent: Color, modifier: Modifier = Modifier, padded: Boolean = true,
+    onClick: () -> Unit, content: @Composable ColumnScope.() -> Unit,
+) {
+    val c = Agenda.colors
+    val level = LocalMotionLevel.current
+    val scale by animateFloatAsState(if (selected) 1.02f else if (dimmed) 0.96f else 1f, Motion.light(level), label = "tileScale")
+    val alpha by animateFloatAsState(if (dimmed) 0.7f else 1f, label = "tileAlpha")
+    val border by animateColorAsState(if (selected) accent else c.border, label = "tileBorder")
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        modifier.fillMaxHeight().graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
+            .clip(shape).background(c.surface).border(if (selected) 2.dp else 1.dp, border, shape)
+            .clickable(onClick = onClick)
+            .then(if (padded) Modifier.padding(Space.md) else Modifier),
+        content = content,
+    )
+}
+
+@Composable
+private fun DateTileContent(state: EventEditorState, multi: Boolean, weekly: Boolean, accent: Color) {
+    val c = Agenda.colors
+    val d = LocalDate.parse(state.dueDate)
+    val big = MaterialTheme.typography.displaySmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
+    when {
+        multi && state.dates.size > 1 -> {
+            Text("VARIAS FECHAS", style = MaterialTheme.typography.labelMedium, color = accent)
+            RollingText("${state.dates.size}", big, c.text)
+            Text(state.dates.sorted().take(3).joinToString(" · ") { shortDate(it) } + if (state.dates.size > 3) "…" else "",
+                style = MaterialTheme.typography.labelMedium, color = c.textMuted, maxLines = 2)
+        }
+        else -> {
+            Text(d.month.getDisplayName(TextStyle.SHORT, es).trimEnd('.').uppercase() + " " + d.year, style = MaterialTheme.typography.labelMedium, color = accent)
+            RollingText("${d.dayOfMonth}", big, c.text)
+            Text(d.dayOfWeek.getDisplayName(TextStyle.FULL, es).replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyMedium, color = c.text)
+            Spacer(Modifier.height(Space.xs))
+            val label = if (weekly) "Cada " + state.repeatDays.sorted().joinToString(", ") { DayShort[it - 1] } else relativeDay(d)
+            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(accent.copy(alpha = 0.2f)).padding(horizontal = 10.dp, vertical = 3.dp)) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = c.text, maxLines = 1)
+            }
+        }
+    }
+}
+
+private fun relativeDay(d: LocalDate): String {
+    val n = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), d)
+    return when {
+        n == 0L -> "Hoy"; n == 1L -> "Mañana"; n == -1L -> "Ayer"
+        n < 0 -> "Hace ${-n} días"; n < 7 -> "En $n días"
+        n < 14 -> "En una semana"; else -> "En ${n / 7} semanas"
+    }
+}
+
+/** "Faltan 2 d 3 h" bajo los mosaicos; se actualiza cada minuto. */
+@Composable
+private fun Countdown(date: String, time: String, accent: Color) {
+    val c = Agenda.colors
+    var now by remember { mutableStateOf(java.time.LocalDateTime.now()) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(30_000); now = java.time.LocalDateTime.now() } }
+    val due = runCatching { java.time.LocalDateTime.parse("${date}T$time") }.getOrNull() ?: return
+    val mins = java.time.Duration.between(now, due).toMinutes()
+    val text = when {
+        mins < 0 -> "Esa hora ya pasó"
+        mins < 60 -> "Faltan $mins min"
+        mins < 24 * 60 -> "Faltan ${mins / 60} h ${mins % 60} min"
+        else -> "Faltan ${mins / 1440} d ${(mins % 1440) / 60} h"
+    }
+    Row(Modifier.padding(top = Space.sm, start = Space.xs), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.HourglassTop, contentDescription = null, tint = if (mins < 0) c.warning else accent, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(Space.xs))
+        RollingText(text, MaterialTheme.typography.labelMedium, if (mins < 0) c.warning else c.textMuted)
     }
 }
 

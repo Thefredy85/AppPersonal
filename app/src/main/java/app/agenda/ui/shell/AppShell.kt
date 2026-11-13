@@ -44,6 +44,8 @@ import app.agenda.AgendaApp
 import app.agenda.ui.agenda.AgendaScreen
 import app.agenda.ui.agenda.AgendaViewModel
 import app.agenda.ui.agenda.EventEditor
+import app.agenda.ui.common.DoneCelebration
+import app.agenda.ui.today.GreetingHeader
 import app.agenda.ui.today.TodayScreen
 import app.agenda.data.TimetableBlock
 import app.agenda.ui.common.ConfirmAddDialog
@@ -75,6 +77,7 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
     val eventEditor by agendaVm.editor.collectAsStateWithLifecycle()
     val lastDeletedEvent by agendaVm.lastDeleted.collectAsStateWithLifecycle()
     val justAdded by agendaVm.justAdded.collectAsStateWithLifecycle()
+    val completed by agendaVm.completed.collectAsStateWithLifecycle()
     val blocks by vm.blocks.collectAsStateWithLifecycle()
     val subjects by vm.subjects.collectAsStateWithLifecycle()
     val editor by vm.editor.collectAsStateWithLifecycle()
@@ -132,7 +135,10 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
             },
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
-                Text(
+                if (dest == Dest.Today) GreetingHeader(
+                    app.userName.value,
+                    Modifier.padding(horizontal = Dimens.screenPadding, vertical = Space.md),
+                ) else Text(
                     dest.label, style = MaterialTheme.typography.displaySmall, color = c.text,
                     modifier = Modifier.padding(horizontal = Dimens.screenPadding, vertical = Space.md),
                 )
@@ -234,6 +240,11 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
             state = st, subjects = subjects, blocks = blocks, existingMatch = vm::existingMatch,
             onChange = { vm.updateEditor(it) }, onSave = { vm.save() }, onClose = { vm.closeEditor() },
         )
+    }
+
+    // "¡Felicidades!" al marcar algo como hecho (encima de todo, no bloquea los toques).
+    completed?.let { done ->
+        key(done.stamp) { DoneCelebration(done.type, done.title, done.stamp, onDone = { agendaVm.clearCompleted() }) }
     }
 }
 

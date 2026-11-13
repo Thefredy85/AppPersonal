@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -28,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -77,8 +80,13 @@ fun SingleTimeDial(minutes: Int, color: Color, onChange: (Int) -> Unit, modifier
     val latest by rememberUpdatedState(minutes)
     val onChangeLatest by rememberUpdatedState(onChange)
 
+    val period = periodOf(minutes)
+    val arcCol by animateColorAsState(period.accent, Motion.enter(level, Motion.Slow), label = "arcCol")
+    val onSky by animateColorAsState(period.onSky, Motion.enter(level, Motion.Slow), label = "onSky")
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(240.dp), contentAlignment = Alignment.Center) {
+            // Cielo del momento del día dentro del reloj (sol o luna según la hora).
+            SkyCanvas(minutes, Modifier.size(124.dp).clip(CircleShape))
             Canvas(
                 Modifier.fillMaxSize()
                     .semantics { contentDescription = "Reloj: ${toHhmm(minutes)}" }
@@ -112,7 +120,7 @@ fun SingleTimeDial(minutes: Int, color: Color, onChange: (Int) -> Unit, modifier
                 val center = Offset(size.width / 2f, size.height / 2f)
                 drawCircle(c.surfaceHigh, ring, center, style = Stroke(stroke))
                 drawArc(
-                    color.copy(alpha = 0.35f), -90f, minutes / 1440f * 360f, false,
+                    arcCol.copy(alpha = 0.55f), -90f, minutes / 1440f * 360f, false,
                     topLeft = Offset(center.x - ring, center.y - ring), size = androidx.compose.ui.geometry.Size(ring * 2, ring * 2),
                     style = Stroke(stroke, cap = StrokeCap.Round),
                 )
@@ -130,11 +138,11 @@ fun SingleTimeDial(minutes: Int, color: Color, onChange: (Int) -> Unit, modifier
                 drawCircle(c.bg, 16.dp.toPx() * handleScale, hp)
                 drawCircle(color, 13.dp.toPx() * handleScale, hp)
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                RollingText(toHhmm(minutes), MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold), c.text)
-                Text(dayPart(minutes), style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+            Column(Modifier.offset(y = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RollingText(toHhmm(minutes), MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold), onSky)
             }
         }
+        PeriodPill(period)
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { onChange((minutes - 5).coerceAtLeast(0)) }) { Icon(Icons.Outlined.Remove, contentDescription = "5 minutos antes", tint = c.textMuted) }
             Text("Afinar 5 min", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
@@ -143,7 +151,28 @@ fun SingleTimeDial(minutes: Int, color: Color, onChange: (Int) -> Unit, modifier
     }
 }
 
-private fun dayPart(m: Int) = when (m / 60) { in 0..5 -> "de madrugada"; in 6..11 -> "de la mañana"; in 12..18 -> "de la tarde"; else -> "de la noche" }
+/** Etiqueta del momento del día con su icono; cambia con un deslizamiento al cruzar de periodo. */
+@Composable
+fun PeriodPill(period: DayPeriod, modifier: Modifier = Modifier) {
+    val level = LocalMotionLevel.current
+    AnimatedContent(
+        targetState = period,
+        transitionSpec = {
+            (slideInVertically(Motion.enter(level)) { it } + fadeIn(Motion.enter(level)))
+                .togetherWith(slideOutVertically(Motion.exit(level)) { -it } + fadeOut(Motion.exit(level)))
+        },
+        label = "periodPill", modifier = modifier.padding(top = Space.sm),
+    ) { p ->
+        Row(
+            Modifier.clip(CircleShape).background(Brush.horizontalGradient(listOf(p.skyTop, p.skyBottom))).padding(horizontal = Space.md, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(p.icon, contentDescription = null, tint = p.onSky, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(p.label.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium, color = p.onSky)
+        }
+    }
+}
 
 /**
  * Calendario propio: mes con flechas (el mes nuevo entra deslizándose desde su lado),

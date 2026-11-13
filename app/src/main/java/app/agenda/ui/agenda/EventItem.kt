@@ -7,12 +7,14 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -28,6 +30,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
@@ -145,6 +148,19 @@ fun EventItem(row: EventRow, onToggle: () -> Unit, onClick: () -> Unit, modifier
         }
     }
 
+    val period = periodOf(row.dueTime)
+    val due = remember(row.dueDate, row.dueTime) { runCatching { java.time.LocalDateTime.parse("${row.dueDate}T${row.dueTime ?: "23:59"}") }.getOrNull() }
+    val untilMin = due?.let { java.time.Duration.between(java.time.LocalDateTime.now(), it).toMinutes() }
+    val relative = when {
+        optimistic -> "Hecha"
+        untilMin == null -> ""
+        untilMin < 0 -> "Vencida"
+        untilMin < 60 -> "en $untilMin min"
+        row.dueDate == LocalDate.now().toString() -> "en ${untilMin / 60} h"
+        row.dueDate == LocalDate.now().plusDays(1).toString() -> "mañana"
+        else -> "en ${java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(row.dueDate))} d"
+    }
+    val shape = RoundedCornerShape(24.dp)
     Row(
         modifier.fillMaxWidth()
             .graphicsLayer {
@@ -156,51 +172,77 @@ fun EventItem(row: EventRow, onToggle: () -> Unit, onClick: () -> Unit, modifier
                     typeCol.copy(alpha = 0.55f * glow.value),
                     topLeft = Offset(-4.dp.toPx(), -4.dp.toPx()),
                     size = Size(size.width + 8.dp.toPx(), size.height + 8.dp.toPx()),
-                    cornerRadius = CornerRadius(24.dp.toPx()),
+                    cornerRadius = CornerRadius(28.dp.toPx()),
                 )
             }
-            .clip(MaterialTheme.shapes.large).background(c.surface)
-            .drawBehind { drawRect(typeCol, size = Size(4.dp.toPx(), size.height)) }
-            .clickable(onClick = onClick).padding(start = 4.dp, end = Space.lg, top = Space.xs, bottom = Space.xs),
+            .clip(shape)
+            .background(Brush.horizontalGradient(0f to typeCol.copy(alpha = if (optimistic) 0.06f else 0.20f), 0.55f to c.surface))
+            .border(1.dp, typeCol.copy(alpha = if (optimistic) 0.12f else 0.28f), shape)
+            .clickable(onClick = onClick).padding(end = Space.md, top = Space.sm, bottom = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AnimatedCheck(optimistic, subjectCol, onToggle = { optimistic = !optimistic; onToggle() })
+        AnimatedCheck(optimistic, typeCol, onToggle = { optimistic = !optimistic; onToggle() })
         Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(typeIcon(row.type), contentDescription = null, tint = typeCol, modifier = Modifier.size(13.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(typeLabel(row.type).uppercase(), style = MaterialTheme.typography.labelSmall, color = typeCol)
+                if (row.seriesId != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Outlined.Repeat, contentDescription = "Se repite", tint = c.textMuted, modifier = Modifier.size(12.dp))
+                }
+            }
             Text(
-                row.title, style = MaterialTheme.typography.bodyLarge, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                row.title, style = MaterialTheme.typography.titleMedium, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.drawWithContent {
                     drawContent()
                     if (strike > 0f) drawLine(c.textMuted, Offset(0f, size.height / 2), Offset(size.width * strike, size.height / 2), 2.dp.toPx())
                 },
             )
             if (!row.rememberThat.isNullOrBlank()) {
-                Text(
-                    "Recordar que: ${row.rememberThat}", style = MaterialTheme.typography.labelMedium, color = typeCol,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (row.subjectName != null) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(subjectCol))
-                    Spacer(Modifier.width(Space.xs))
-                    Text(row.subjectName, style = MaterialTheme.typography.labelMedium, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    Text(" · ", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = typeCol, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(row.rememberThat, style = MaterialTheme.typography.labelMedium, color = typeCol, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(
-                    listOfNotNull(typeLabel(row.type), row.dueTime).joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium, color = if (overdue) c.danger else c.textMuted,
-                )
+            }
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (row.subjectName != null) {
+                    Row(
+                        Modifier.clip(RoundedCornerShape(999.dp)).background(subjectCol.copy(alpha = 0.22f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(subjectCol))
+                        Spacer(Modifier.width(4.dp))
+                        Text(row.subjectName, style = MaterialTheme.typography.labelMedium, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.width(Space.xs))
+                }
+                if (row.subtasksTotal > 0) {
+                    val frac = row.subtasksDone.toFloat() / row.subtasksTotal
+                    Box(Modifier.width(36.dp).height(5.dp).clip(CircleShape).background(c.surfaceHigh)
+                        .drawBehind { drawRect(typeCol, size = Size(size.width * frac, size.height)) })
+                    Spacer(Modifier.width(4.dp))
+                    Text("${row.subtasksDone}/${row.subtasksTotal}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                    Spacer(Modifier.width(Space.xs))
+                }
+                if (row.images > 0) {
+                    Icon(Icons.Outlined.Image, contentDescription = "${row.images} imágenes", tint = c.textMuted, modifier = Modifier.size(14.dp))
+                    Text("${row.images}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                }
             }
         }
-        if (row.seriesId != null) Icon(Icons.Outlined.Repeat, contentDescription = "Se repite", tint = c.textMuted, modifier = Modifier.padding(start = Space.xs).size(16.dp))
-        if (row.images > 0) Chip("${row.images}", Icons.Outlined.Image)
-        if (row.subtasksTotal > 0) Chip("${row.subtasksDone}/${row.subtasksTotal}", Icons.Outlined.Checklist)
-        if (row.reminders > 0) Icon(Icons.Outlined.NotificationsActive, contentDescription = "Con aviso", tint = c.textMuted, modifier = Modifier.padding(start = Space.xs).size(16.dp))
-        if (row.type == "exam") {
-            Spacer(Modifier.width(Space.xs))
-            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(typeCol).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                Text("Examen", style = MaterialTheme.typography.labelMedium, color = onSubjectColor(typeCol))
+        // Hora con el icono del momento del día y cuánto falta
+        Column(horizontalAlignment = Alignment.End) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (row.reminders > 0) Icon(Icons.Outlined.NotificationsActive, contentDescription = "Con aviso", tint = c.textMuted, modifier = Modifier.padding(end = 4.dp).size(14.dp))
+                Icon(period.icon, contentDescription = period.label, tint = period.accent, modifier = Modifier.size(16.dp))
             }
+            Text(row.dueTime ?: "—", style = MaterialTheme.typography.titleMedium, color = c.text)
+            if (relative.isNotEmpty()) Text(
+                relative, style = MaterialTheme.typography.labelMedium,
+                color = when { relative == "Vencida" -> c.danger; optimistic -> c.success; else -> c.textMuted },
+            )
         }
     }
 }

@@ -23,4 +23,9 @@ class Prefs(context: Context) {
     var wakeScreen: Boolean
         get() = sp.getBoolean("wake_screen", true)
         set(v) = sp.edit().putBoolean("wake_screen", v).apply()
+
+    /** Cómo te saluda la pantalla Hoy. */
+    var userName: String
+        get() = sp.getString("user_name", "") ?: ""
+        set(v) = sp.edit().putString("user_name", v.trim()).apply()
 }
