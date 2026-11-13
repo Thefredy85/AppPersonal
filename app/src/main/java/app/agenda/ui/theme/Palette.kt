@@ -22,3 +22,10 @@ fun colorFromHue(hue: Float, saturation: Float = 0.62f, value: Float = 0.95f): C
     Color.hsv(hue.coerceIn(0f, 360f), saturation, value)
 
 fun Color.argb(): Int = toArgb()
+
+/** Color de cada tipo de la agenda: tarea (menta), examen (ámbar intenso, el más importante), recordatorio (violeta). */
+fun typeColor(type: String): Color = when (type) {
+    "exam" -> Color(0xFFFF9F43)
+    "reminder" -> Color(0xFFA78BFA)
+    else -> Color(0xFF34E5B4)
+}

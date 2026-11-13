@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.Flow
         ForeignKey(entity = Planner::class, parentColumns = ["id"], childColumns = ["planner_id"], onDelete = ForeignKey.CASCADE),
         ForeignKey(entity = Subject::class, parentColumns = ["id"], childColumns = ["subject_id"], onDelete = ForeignKey.SET_NULL),
     ],
-    indices = [Index("planner_id"), Index("subject_id"), Index(value = ["planner_id", "due_date"])],
+    indices = [Index("planner_id"), Index("subject_id"), Index(value = ["planner_id", "due_date"]), Index("series_id")],
 )
 data class Event(
     @PrimaryKey val id: String = newId(),
@@ -38,6 +38,24 @@ data class Event(
     @ColumnInfo(name = "created_at") val createdAt: Long = now(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = now(),
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
+    /** v6: eventos creados juntos (tarea semanal, varias fechas de examen, rutina) comparten serie. */
+    @ColumnInfo(name = "series_id") val seriesId: String? = null,
+    /** v6: sección "Recordar que…" de los recordatorios. */
+    @ColumnInfo(name = "remember_that") val rememberThat: String? = null,
+)
+
+@Entity(
+    tableName = "event_image",
+    foreignKeys = [ForeignKey(entity = Event::class, parentColumns = ["id"], childColumns = ["event_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("event_id")],
+)
+data class EventImage(
+    @PrimaryKey val id: String = newId(),
+    @ColumnInfo(name = "event_id") val eventId: String,
+    /** Copia de la imagen dentro del almacenamiento privado de la app. */
+    @ColumnInfo(name = "local_path") val localPath: String,
+    val position: Int,
+    @ColumnInfo(name = "created_at") val createdAt: Long = now(),
 )
 
 @Entity(
@@ -82,6 +100,9 @@ data class EventRow(
     @ColumnInfo(name = "subtasks_total") val subtasksTotal: Int,
     @ColumnInfo(name = "subtasks_done") val subtasksDone: Int,
     @ColumnInfo(name = "reminders") val reminders: Int,
+    @ColumnInfo(name = "series_id") val seriesId: String?,
+    @ColumnInfo(name = "remember_that") val rememberThat: String?,
+    @ColumnInfo(name = "images") val images: Int,
 )
 
 /** Aviso pendiente de un evento, para programarlo. */
@@ -102,7 +123,9 @@ interface EventDao {
                s.name AS subject_name, s.color_argb,
                (SELECT COUNT(*) FROM subtask t WHERE t.event_id = e.id) AS subtasks_total,
                (SELECT COUNT(*) FROM subtask t WHERE t.event_id = e.id AND t.done = 1) AS subtasks_done,
-               (SELECT COUNT(*) FROM event_reminder r WHERE r.event_id = e.id) AS reminders
+               (SELECT COUNT(*) FROM event_reminder r WHERE r.event_id = e.id) AS reminders,
+               e.series_id, e.remember_that,
+               (SELECT COUNT(*) FROM event_image i WHERE i.event_id = e.id) AS images
         FROM event e LEFT JOIN subject s ON s.id = e.subject_id
         WHERE e.planner_id = :plannerId AND e.deleted_at IS NULL
         ORDER BY e.due_date, IFNULL(e.due_time, '99:99'), e.created_at
@@ -113,6 +136,12 @@ interface EventDao {
     @Query("SELECT * FROM event WHERE id = :id") suspend fun event(id: String): Event?
     @Query("SELECT * FROM event_reminder WHERE event_id = :id ORDER BY remind_at_local") suspend fun reminders(id: String): List<EventReminder>
     @Query("SELECT * FROM subtask WHERE event_id = :id ORDER BY position") suspend fun subtasks(id: String): List<Subtask>
+
+    @Query("SELECT * FROM event_image WHERE event_id = :id ORDER BY position") suspend fun images(id: String): List<EventImage>
+    @Query("DELETE FROM event_image WHERE event_id = :id") suspend fun clearImages(id: String)
+    @Insert suspend fun insertImages(list: List<EventImage>)
+    @Query("SELECT COUNT(*) FROM event WHERE series_id = :seriesId AND deleted_at IS NULL") suspend fun seriesCount(seriesId: String): Int
+    @Query("UPDATE event SET deleted_at = :at, updated_at = :at WHERE series_id = :seriesId AND deleted_at IS NULL") suspend fun softDeleteSeries(seriesId: String, at: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertEvent(e: Event)
     @Query("DELETE FROM event_reminder WHERE event_id = :id") suspend fun clearReminders(id: String)
@@ -138,13 +167,31 @@ interface EventDao {
     suspend fun pendingReminders(fromLocal: String): List<PendingReminder>
 
     @Transaction
-    suspend fun saveEvent(e: Event, reminders: List<EventReminder>, subtasks: List<Subtask>) {
+    suspend fun saveEvent(e: Event, reminders: List<EventReminder>, subtasks: List<Subtask>, images: List<EventImage> = emptyList()) {
         upsertEvent(e)
-        clearReminders(e.id); clearSubtasks(e.id)
+        clearReminders(e.id); clearSubtasks(e.id); clearImages(e.id)
         if (reminders.isNotEmpty()) insertReminders(reminders)
         if (subtasks.isNotEmpty()) insertSubtasks(subtasks)
+        if (images.isNotEmpty()) insertImages(images)
+    }
+
+    /** Guarda varias instancias de una vez (serie) en una sola transacción. */
+    @Transaction
+    suspend fun saveMany(items: List<SaveItem>) {
+        items.forEach { saveEvent(it.event, it.reminders, it.subtasks, it.images) }
     }
 }
+
+data class SaveItem(val event: Event, val reminders: List<EventReminder>, val subtasks: List<Subtask>, val images: List<EventImage>)
+
+/** Migración 3 → 4 (v6): series, "Recordar que…" e imágenes. Verificado contra el esquema de Room. */
+val MIGRATION_3_4_SQL = listOf(
+    "ALTER TABLE `event` ADD COLUMN `series_id` TEXT",
+    "ALTER TABLE `event` ADD COLUMN `remember_that` TEXT",
+    "CREATE INDEX IF NOT EXISTS `index_event_series_id` ON `event` (`series_id`)",
+    "CREATE TABLE IF NOT EXISTS `event_image` (`id` TEXT NOT NULL, `event_id` TEXT NOT NULL, `local_path` TEXT NOT NULL, `position` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`event_id`) REFERENCES `event`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+    "CREATE INDEX IF NOT EXISTS `index_event_image_event_id` ON `event_image` (`event_id`)",
+)
 
 /**
  * Migración 2 → 3: crea las tablas de la agenda. El SQL reproduce exactamente lo que Room genera

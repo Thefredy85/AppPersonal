@@ -74,6 +74,7 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
     val rows by agendaVm.rows.collectAsStateWithLifecycle()
     val eventEditor by agendaVm.editor.collectAsStateWithLifecycle()
     val lastDeletedEvent by agendaVm.lastDeleted.collectAsStateWithLifecycle()
+    val justAdded by agendaVm.justAdded.collectAsStateWithLifecycle()
     val blocks by vm.blocks.collectAsStateWithLifecycle()
     val subjects by vm.subjects.collectAsStateWithLifecycle()
     val editor by vm.editor.collectAsStateWithLifecycle()
@@ -97,6 +98,9 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
             if (r == SnackbarResult.ActionPerformed) agendaVm.undoDelete() else agendaVm.clearDeleted()
         }
     }
+
+    // Lo recién agregado se "plasma" en el tablero de la Agenda.
+    LaunchedEffect(justAdded) { if (justAdded != null) dest = Dest.Agenda }
 
     LaunchedEffect(lastDeleted) {
         if (lastDeleted != null) {
@@ -215,8 +219,12 @@ fun AppShell(vm: TimetableViewModel, agendaVm: AgendaViewModel) {
         EventEditor(
             state = st, subjects = subjects, blocks = blocks,
             busyDays = rows.filter { it.doneAt == null }.map { it.dueDate }.toSet(),
-            onChange = { agendaVm.update(it) }, onSave = { agendaVm.save() },
-            onDiscardDraft = { agendaVm.discardDraft() }, onClose = { agendaVm.close() },
+            onChange = { agendaVm.update(it) },
+            onSwitchType = { t -> agendaVm.switchType(t, subjects.firstOrNull { it.id == st.subjectId }?.name) },
+            onSave = { agendaVm.save() },
+            onDiscardDraft = { agendaVm.discardDraft() },
+            onDeleteSeries = { st.seriesId?.let { agendaVm.deleteSeries(it) } },
+            onClose = { agendaVm.close() },
         )
     }
 

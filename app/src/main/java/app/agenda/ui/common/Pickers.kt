@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -156,16 +157,21 @@ fun MonthCalendar(
     busyDays: Set<String>,
     onSelect: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
+    /** v7: varias fechas (exámenes 1–5, recordatorios en varias fechas). Vacío = modo de una fecha. */
+    multiSelected: List<LocalDate> = emptyList(),
+    showShortcuts: Boolean = true,
 ) {
     val c = Agenda.colors
     val level = LocalMotionLevel.current
     val haptics = LocalHapticFeedback.current
+    val multi = multiSelected.isNotEmpty()
+    val chosen = if (multi) multiSelected.sorted() else listOf(selected)
     var month by remember { mutableStateOf(YearMonth.from(selected)) }
     val today = LocalDate.now()
 
     Column(modifier) {
         // Atajos
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        if (showShortcuts) FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             val nextMonday = today.plusDays((8 - today.dayOfWeek.value).toLong())
             listOf("Hoy" to today, "Mañana" to today.plusDays(1), "Próximo lunes" to nextMonday, "En una semana" to today.plusWeeks(1)).forEach { (l, d) ->
                 FilterChip(selected = selected == d, onClick = { month = YearMonth.from(d); onSelect(d) }, label = { Text(l) })
@@ -203,6 +209,14 @@ fun MonthCalendar(
                     .togetherWith(slideOutHorizontally(Motion.exit(level)) { -it / 2 * dir } + fadeOut(Motion.exit(level)))
             },
             label = "monthGrid",
+            // Deslizar a los lados también cambia de mes.
+            modifier = Modifier.pointerInput(Unit) {
+                var total = 0f
+                detectHorizontalDragGestures(
+                    onDragEnd = { if (total > 80) month = month.minusMonths(1) else if (total < -80) month = month.plusMonths(1); total = 0f },
+                    onHorizontalDrag = { _, d -> total += d },
+                )
+            },
         ) { m ->
             val first = m.atDay(1)
             val offset = first.dayOfWeek.value - 1
@@ -215,7 +229,8 @@ fun MonthCalendar(
                             Box(Modifier.weight(1f).aspectRatio(1f), contentAlignment = Alignment.Center) {
                                 if (dayNum in 1..m.lengthOfMonth()) {
                                     val d = m.atDay(dayNum)
-                                    val sel = d == selected
+                                    val order = chosen.indexOf(d)
+                                    val sel = order >= 0
                                     val scale by animateFloatAsState(if (sel) 1f else 0f, Motion.light(level), label = "sel$dayNum")
                                     val fg by animateColorAsState(if (sel) onSubjectColor(color) else if (d.isBefore(today)) c.textMuted else c.text, label = "fg$dayNum")
                                     Box(
@@ -227,6 +242,12 @@ fun MonthCalendar(
                                     ) {
                                         Box(Modifier.size(40.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(color))
                                         Text("$dayNum", style = MaterialTheme.typography.bodyLarge, color = fg)
+                                        if (multi && sel && chosen.size > 1) {
+                                            Box(
+                                                Modifier.align(Alignment.TopEnd).size(16.dp).clip(CircleShape).background(c.bg),
+                                                contentAlignment = Alignment.Center,
+                                            ) { Text("${order + 1}", style = MaterialTheme.typography.labelMedium, color = c.text) }
+                                        }
                                         if (d.toString() in busyDays) {
                                             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).size(4.dp).clip(CircleShape).background(fg))
                                         }

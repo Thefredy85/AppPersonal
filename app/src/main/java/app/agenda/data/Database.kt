@@ -100,8 +100,8 @@ interface AgendaDao {
 }
 
 @Database(
-    entities = [Planner::class, Subject::class, Timetable::class, Lesson::class, Occurrence::class, Event::class, EventReminder::class, Subtask::class],
-    version = 3,
+    entities = [Planner::class, Subject::class, Timetable::class, Lesson::class, Occurrence::class, Event::class, EventReminder::class, Subtask::class, EventImage::class],
+    version = 4,
     exportSchema = true,
 )
 abstract class AgendaDatabase : RoomDatabase() {
@@ -124,9 +124,13 @@ abstract class AgendaDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) { MIGRATION_2_3_SQL.forEach { db.execSQL(it) } }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) { MIGRATION_3_4_SQL.forEach { db.execSQL(it) } }
+        }
+
         fun create(context: Context): AgendaDatabase =
             Room.databaseBuilder(context, AgendaDatabase::class.java, "agenda.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 // A propósito NO hay fallbackToDestructiveMigration: un cambio de esquema sin migración
                 // debe fallar en pruebas, nunca borrar los datos del usuario.
                 .build()
