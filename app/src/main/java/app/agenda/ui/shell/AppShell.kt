@@ -38,6 +38,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.agenda.AgendaApp
+import app.agenda.data.TimetableBlock
+import app.agenda.ui.common.ConfirmAddDialog
+import app.agenda.ui.common.SummaryLine
 import app.agenda.alarm.AlarmScheduler
 import app.agenda.update.UpdateChecker
 import app.agenda.update.UpdateInfo
@@ -73,7 +76,7 @@ fun AppShell(vm: TimetableViewModel) {
     val keepOn = app.keepScreenOn.value
     DisposableEffect(keepOn) { view.keepScreenOn = keepOn; onDispose { view.keepScreenOn = false } }
     var openOccurrence by remember { mutableStateOf<String?>(null) }
-    var confirmDuplicate by remember { mutableStateOf<app.agenda.data.TimetableBlock?>(null) }
+    var confirmDuplicate by remember { mutableStateOf<TimetableBlock?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val ctx = LocalContext.current
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -155,11 +158,11 @@ fun AppShell(vm: TimetableViewModel) {
 
     // Confirmación antes de duplicar (agregar) una clase
     confirmDuplicate?.let { b ->
-        app.agenda.ui.common.ConfirmAddDialog(
+        ConfirmAddDialog(
             title = "¿Duplicar esta clase?",
             accent = subjectColor(b.colorArgb),
             headline = b.subjectName,
-            lines = listOf(app.agenda.ui.common.SummaryLine(Icons.Outlined.ContentCopy, "Se crea una copia y se abre para editarla")),
+            lines = listOf(SummaryLine(Icons.Outlined.ContentCopy, "Se crea una copia y se abre para editarla")),
             confirmLabel = "Duplicar",
             onConfirm = { confirmDuplicate = null; vm.duplicate(b.lessonId) },
             onDismiss = { confirmDuplicate = null },

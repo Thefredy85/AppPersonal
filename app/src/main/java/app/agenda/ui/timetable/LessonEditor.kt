@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.agenda.data.Subject
+import app.agenda.ui.common.ConfirmAddDialog
+import app.agenda.ui.common.SummaryLine
 import app.agenda.ui.theme.*
 import kotlinx.coroutines.delay
 
@@ -206,17 +208,17 @@ fun LessonEditor(
             if (confirming) {
                 val lines = buildList {
                     state.groups.filter { it.days.isNotEmpty() }.forEach { g ->
-                        add(app.agenda.ui.common.SummaryLine(Icons.Outlined.Schedule, "${formatDays(g.days)} · ${g.start} → ${g.end}"))
+                        add(SummaryLine(Icons.Outlined.Schedule, "${formatDays(g.days)} · ${g.start} → ${g.end}"))
                     }
-                    if (state.room.isNotBlank()) add(app.agenda.ui.common.SummaryLine(Icons.Outlined.Place, "Aula ${state.room.trim()}"))
-                    add(app.agenda.ui.common.SummaryLine(
+                    if (state.room.isNotBlank()) add(SummaryLine(Icons.Outlined.Place, "Aula ${state.room.trim()}"))
+                    add(SummaryLine(
                         if (state.remindMinutes != null) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsOff,
                         state.remindMinutes?.let { "Aviso $it min antes" } ?: "Sin aviso",
                     ))
                     val n = findConflicts(state, blocks).size
-                    if (n > 0) add(app.agenda.ui.common.SummaryLine(Icons.Outlined.WarningAmber, "Se cruza con $n clase${if (n > 1) "s" else ""}"))
+                    if (n > 0) add(SummaryLine(Icons.Outlined.WarningAmber, "Se cruza con $n clase${if (n > 1) "s" else ""}"))
                 }
-                app.agenda.ui.common.ConfirmAddDialog(
+                ConfirmAddDialog(
                     title = if (state.lessonId == null) "¿Agregar esta clase?" else "¿Guardar los cambios?",
                     accent = color,
                     headline = state.subjectName.ifBlank { "Clase sin nombre" },
