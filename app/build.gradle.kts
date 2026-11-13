@@ -1,3 +1,9 @@
+import java.util.Properties
+
+// Número de versión visible (1, 2, 3…): se sube en version.properties con cada actualización.
+val appVersion: Int = Properties().apply { rootProject.file("version.properties").inputStream().use { load(it) } }
+    .getProperty("VERSION").toInt()
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -13,8 +19,9 @@ android {
         applicationId = "app.agenda.personal"
         minSdk = 26
         targetSdk = 35
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "0.1.0-m1"
+        // +100 para quedar por encima de la compilación de prueba v0.1.2 (versionCode 2).
+        versionCode = 100 + appVersion
+        versionName = appVersion.toString()
     }
     signingConfigs {
         // La llave llega desde los secretos de GitHub (nunca está en el repositorio).

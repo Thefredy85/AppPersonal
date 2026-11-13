@@ -38,6 +38,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.agenda.AgendaApp
+import app.agenda.update.UpdateChecker
+import app.agenda.update.UpdateInfo
 import app.agenda.ui.theme.*
 import app.agenda.ui.timetable.LessonEditor
 import app.agenda.ui.timetable.LessonSheet
@@ -65,6 +67,9 @@ fun AppShell(vm: TimetableViewModel) {
     val lastDeleted by vm.lastDeleted.collectAsStateWithLifecycle()
     var openOccurrence by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
+    val ctx = LocalContext.current
+    var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    LaunchedEffect(Unit) { update = UpdateChecker.check(ctx).getOrNull() }
 
     LaunchedEffect(lastDeleted) {
         if (lastDeleted != null) {
@@ -118,6 +123,23 @@ fun AppShell(vm: TimetableViewModel) {
         }
 
         GlassBottomBar(dest, onSelect = { dest = it }, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+
+    update?.let { u ->
+        AlertDialog(
+            onDismissRequest = { update = null },
+            title = { Text("Hay una versión nueva: ${u.version}") },
+            text = {
+                Text(
+                    "Descarga ${u.apkName ?: "el APK"} en Chrome e instálalo encima de esta versión. " +
+                        "Tus clases y ajustes se conservan."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { UpdateChecker.openDownloadPage(ctx, u.pageUrl); update = null }) { Text("Descargar") }
+            },
+            dismissButton = { TextButton(onClick = { update = null }) { Text("Luego") } },
+        )
     }
 
     // Hoja de detalle
@@ -208,10 +230,29 @@ private fun MoreScreen() {
     val batteryOk = remember(refresh) { pm.isIgnoringBatteryOptimizations(ctx.packageName) }
     var scheduled by remember { mutableStateOf<Int?>(null) }
 
+    var updateMsg by remember { mutableStateOf<String?>(null) }
+    var foundUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = Dimens.screenPadding).padding(bottom = Dimens.bottomBar + Space.x4)
     ) {
+        Text("Versión", style = MaterialTheme.typography.titleMedium, color = c.text, modifier = Modifier.padding(vertical = Space.md))
+        SettingCard(
+            title = "AppAgenda ${UpdateChecker.installedVersion(ctx)}",
+            body = updateMsg ?: "Busca si hay una versión nueva publicada.",
+            action = if (foundUpdate != null) "Descargar versión ${foundUpdate!!.version}" else "Buscar actualizaciones",
+            onClick = {
+                val f = foundUpdate
+                if (f != null) UpdateChecker.openDownloadPage(ctx, f.pageUrl)
+                else scope.launch {
+                    updateMsg = "Buscando…"
+                    UpdateChecker.check(ctx, force = true)
+                        .onSuccess { foundUpdate = it; updateMsg = if (it == null) "Tienes la versión más reciente." else "Hay una versión nueva: ${it.version}." }
+                        .onFailure { updateMsg = "No se pudo consultar. Revisa tu conexión." }
+                }
+            },
+        )
         Text("Avisos", style = MaterialTheme.typography.titleMedium, color = c.text, modifier = Modifier.padding(vertical = Space.md))
         SettingCard(
             title = "Notificaciones",

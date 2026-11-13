@@ -39,21 +39,31 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
 
-      - name: Nombrar el APK
+      - name: Nombrar el APK con su versión
         run: |
+          V=$(grep '^VERSION=' version.properties | cut -d= -f2)
+          echo "V=$V" >> "$GITHUB_ENV"
           mkdir -p out
-          cp app/build/outputs/apk/release/app-release.apk "out/Agenda-${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "out/AppAgenda-v$V.apk"
+          # Solo se publica si esta versión todavía no existe (así una corrección sin subir versión no pisa la anterior).
+          if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null; then
+            echo "PUBLISH=false" >> "$GITHUB_ENV"
+          else
+            echo "PUBLISH=true" >> "$GITHUB_ENV"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Agenda-${{ github.run_number }}
+          name: AppAgenda-v${{ env.V }}-build${{ github.run_number }}
           path: out/*.apk
 
       - name: Publicar versión
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && env.PUBLISH == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.${{ github.run_number }}
-          name: Agenda v0.1.${{ github.run_number }}
-          body: APK compilado automáticamente desde ${{ github.sha }}.
+          tag_name: v${{ env.V }}
+          name: AppAgenda ${{ env.V }}
+          make_latest: true
+          body: |
+            Versión ${{ env.V }} de tu agenda. Descarga AppAgenda-v${{ env.V }}.apk e instálala encima de la anterior: no se pierden tus datos.
           files: out/*.apk
