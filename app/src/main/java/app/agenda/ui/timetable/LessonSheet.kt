@@ -30,7 +30,10 @@ fun LessonSheet(
     val c = Agenda.colors
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = c.glassTint.copy(alpha = c.glassStrongAlpha),
+        // Sin desenfoque real (llega con Haze), el cristal translúcido deja ver los bloques de color detrás.
+        // Por legibilidad, la hoja es casi opaca y el fondo se oscurece más.
+        containerColor = c.surfaceHigh.copy(alpha = 0.97f),
+        scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f),
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
     ) {
         Column(Modifier.padding(horizontal = Space.xxl).padding(bottom = Space.x3)) {

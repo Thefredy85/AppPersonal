@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import app.agenda.AgendaApp
+import app.agenda.MainActivity
 import app.agenda.R
 import app.agenda.data.TimetableBlock
 import kotlinx.coroutines.CoroutineScope
@@ -64,17 +65,23 @@ class AlarmScheduler(private val context: Context) {
     }
 
     /** Aviso de prueba dentro de [seconds] segundos, por el mismo camino que los avisos reales. */
-    fun scheduleTest(seconds: Int = 15) {
+    fun scheduleTest(seconds: Int = 15): Long {
         val fireAt = System.currentTimeMillis() + seconds * 1000L
         val pi = pendingIntent("test", "Aviso de prueba", null, "ahora")
         setAlarm(fireAt, 60_000L, pi)
+        return fireAt
     }
 
     /** Exacta si hay permiso; si no (o si el sistema lo retira de golpe), ventana de tolerancia. */
     private fun setAlarm(fireAtMillis: Long, windowMillis: Long, pi: PendingIntent) {
         try {
             if (canScheduleExact()) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAtMillis, pi)
+                // Alarma de tipo "reloj": Android y ColorOS no la retrasan por ahorro de batería.
+                // Al tocar el icono de alarma de la barra de estado se abre la agenda.
+                val show = PendingIntent.getActivity(
+                    context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
+                )
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(fireAtMillis, show), pi)
                 return
             }
         } catch (_: SecurityException) { }
@@ -109,16 +116,28 @@ class AlarmScheduler(private val context: Context) {
             context.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
 
-        fun notify(context: Context, id: Int, title: String, text: String) {
+        /** true si Android dejará mostrar notificaciones (permiso concedido y canal no silenciado). */
+        fun notificationsEnabled(context: Context): Boolean {
             if (Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-            ) return
+            ) return false
+            val nm = context.getSystemService(NotificationManager::class.java)
+            if (!nm.areNotificationsEnabled()) return false
+            return (nm.getNotificationChannel(CHANNEL_CLASSES)?.importance ?: NotificationManager.IMPORTANCE_HIGH) != NotificationManager.IMPORTANCE_NONE
+        }
+
+        fun notify(context: Context, id: Int, title: String, text: String) {
+            if (!notificationsEnabled(context)) return
             val n = NotificationCompat.Builder(context, CHANNEL_CLASSES)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setContentIntent(
+                    PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                )
                 .setAutoCancel(true)
                 .build()
             NotificationManagerCompat.from(context).notify(id, n)

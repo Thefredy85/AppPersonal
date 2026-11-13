@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.agenda.AgendaApp
+import app.agenda.alarm.AlarmScheduler
 import app.agenda.update.UpdateChecker
 import app.agenda.update.UpdateInfo
 import app.agenda.ui.theme.*
@@ -224,7 +225,16 @@ private fun MoreScreen() {
     val app = ctx.applicationContext as AgendaApp
     val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
-    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
+    val openNotifSettings = {
+        ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+    }
+    // Si Android ya no muestra el diálogo (permiso rechazado antes), abre directamente los ajustes de la app.
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        refresh++
+        if (!granted) openNotifSettings()
+    }
+    val notifOk = remember(refresh) { AlarmScheduler.notificationsEnabled(ctx) }
+    var testMsg by remember { mutableStateOf<String?>(null) }
     val pm = ctx.getSystemService(PowerManager::class.java)
     val exactOk = remember(refresh) { app.alarms.canScheduleExact() }
     val batteryOk = remember(refresh) { pm.isIgnoringBatteryOptimizations(ctx.packageName) }
@@ -255,12 +265,11 @@ private fun MoreScreen() {
         )
         Text("Avisos", style = MaterialTheme.typography.titleMedium, color = c.text, modifier = Modifier.padding(vertical = Space.md))
         SettingCard(
-            title = "Notificaciones",
-            body = "Necesarias para que veas los avisos de clase.",
-            action = "Permitir",
+            title = if (notifOk) "Notificaciones: activadas" else "Notificaciones: desactivadas",
+            body = if (notifOk) "Los avisos de clase se mostrarán." else "Sin este permiso no verás ningún aviso, ni el de prueba.",
+            action = if (notifOk) null else "Activar",
             onClick = {
-                if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                else ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+                if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else openNotifSettings()
             },
         )
         SettingCard(
@@ -282,9 +291,16 @@ private fun MoreScreen() {
         )
         SettingCard(
             title = "Probar un aviso",
-            body = "Envía un aviso en 15 segundos. Bloquea el teléfono y espera: si llega, los avisos de clase funcionarán.",
+            body = testMsg ?: "Envía un aviso en 15 segundos. Bloquea el teléfono y espera: si llega, los avisos de clase funcionarán.",
             action = "Probar",
-            onClick = { app.alarms.scheduleTest(15) },
+            onClick = {
+                testMsg = if (!notifOk) {
+                    "Primero activa las notificaciones (arriba)."
+                } else {
+                    val at = app.alarms.scheduleTest(15)
+                    "Aviso programado para las " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(at)) + ". Bloquea el teléfono y espera."
+                }
+            },
         )
         SettingCard(
             title = "Reprogramar avisos",
