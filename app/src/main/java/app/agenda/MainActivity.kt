@@ -1,7 +1,6 @@
 package app.agenda
 
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,7 +12,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.agenda.ui.shell.AppShell
 import app.agenda.ui.theme.AgendaTheme
 import app.agenda.ui.theme.LocalMotionLevel
-import app.agenda.ui.theme.MotionLevel
 import app.agenda.ui.theme.ThemeMode
 import app.agenda.ui.timetable.TimetableViewModel
 import kotlinx.coroutines.launch
@@ -26,9 +24,6 @@ class MainActivity : ComponentActivity() {
         // Al abrir, recalcula los avisos (por si el sistema los perdió).
         lifecycleScope.launch { app.rescheduleAlarms() }
 
-        // Movimiento reducido automático si el sistema tiene las animaciones apagadas.
-        val systemScale = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        val motion = if (systemScale == 0f) MotionLevel.Reduced else MotionLevel.Full
 
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -36,7 +31,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             AgendaTheme(mode = ThemeMode.Dark) {
-                CompositionLocalProvider(LocalMotionLevel provides motion) {
+                CompositionLocalProvider(LocalMotionLevel provides app.motionLevel.value) {
                     AppShell(viewModel(factory = factory))
                 }
             }

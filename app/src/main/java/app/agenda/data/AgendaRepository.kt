@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.withLock
 data class LessonDraft(
     val lessonId: String? = null,
     val subjectName: String,
-    val colorIndex: Int,
+    val colorArgb: Int,
     val room: String,
     val remindMinutesBefore: Int?,
     val slots: List<Slot>,
@@ -17,7 +17,7 @@ data class LessonDraft(
 data class Slot(val weekday: Int, val start: String, val end: String)
 
 sealed interface SaveResult {
-    data object Ok : SaveResult
+    data class Ok(val lessonId: String) : SaveResult
     data class Invalid(val message: String) : SaveResult
 }
 
@@ -41,13 +41,25 @@ class AgendaRepository(private val dao: AgendaDao, private val onScheduleChanged
     suspend fun occurrences(lessonId: String): List<Occurrence> = dao.occurrences(lessonId)
 
     /** Busca una asignatura por nombre normalizado; si no existe, la crea. Evita duplicados. */
-    suspend fun findOrCreateSubject(plannerId: String, name: String, colorIndex: Int): Subject {
+    suspend fun findOrCreateSubject(plannerId: String, name: String, colorArgb: Int): Subject {
         dao.subjectByKey(plannerId, normalizeName(name))?.let { return it }
-        return Subject(plannerId = plannerId, name = name.trim(), colorIndex = colorIndex).also { dao.insertSubject(it) }
+        return Subject(plannerId = plannerId, name = name.trim(), colorArgb = colorArgb).also { dao.insertSubject(it) }
     }
 
-    /** Color sugerido para una asignatura nueva: el siguiente de la paleta. */
-    suspend fun nextColorIndex(plannerId: String): Int = dao.subjectCount(plannerId) % 10
+    /** Cuántas asignaturas hay (para sugerir el siguiente color de la paleta). */
+    suspend fun subjectCount(plannerId: String): Int = dao.subjectCount(plannerId)
+
+    suspend fun subject(id: String): Subject? = dao.subject(id)
+
+    /** Duplica una clase (misma asignatura, aula y aviso) para editarla después. */
+    suspend fun duplicateLesson(lessonId: String): String? {
+        val l = dao.lesson(lessonId) ?: return null
+        val copy = l.copy(id = newId(), createdAt = now(), updatedAt = now(), deletedAt = null)
+        val occ = dao.occurrences(lessonId).map { it.copy(id = newId(), lessonId = copy.id, createdAt = now(), updatedAt = now()) }
+        dao.replaceLesson(copy, occ)
+        onScheduleChanged()
+        return copy.id
+    }
 
     suspend fun saveLesson(draft: LessonDraft): SaveResult {
         val name = draft.subjectName.trim()
@@ -57,8 +69,8 @@ class AgendaRepository(private val dao: AgendaDao, private val onScheduleChanged
             return SaveResult.Invalid("La hora de fin debe ser posterior a la de inicio")
         }
         val (plannerId, timetableId) = ensureDefaults()
-        val subject = findOrCreateSubject(plannerId, name, draft.colorIndex)
-        if (subject.colorIndex != draft.colorIndex) dao.updateSubject(subject.copy(colorIndex = draft.colorIndex, updatedAt = now()))
+        val subject = findOrCreateSubject(plannerId, name, draft.colorArgb)
+        if (subject.colorArgb != draft.colorArgb) dao.updateSubject(subject.copy(colorArgb = draft.colorArgb, updatedAt = now()))
         val existing = draft.lessonId?.let { dao.lesson(it) }
         val lesson = (existing ?: Lesson(timetableId = timetableId, subjectId = subject.id)).copy(
             subjectId = subject.id,
@@ -69,7 +81,7 @@ class AgendaRepository(private val dao: AgendaDao, private val onScheduleChanged
         val occ = draft.slots.map { Occurrence(lessonId = lesson.id, weekday = it.weekday, startTime = it.start, endTime = it.end) }
         dao.replaceLesson(lesson, occ)
         onScheduleChanged()
-        return SaveResult.Ok
+        return SaveResult.Ok(lesson.id)
     }
 
     /** Borrado lógico, con deshacer. */

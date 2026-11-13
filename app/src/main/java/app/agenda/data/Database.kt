@@ -10,6 +10,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -63,7 +65,7 @@ interface AgendaDao {
     @Query(
         """
         SELECT o.id AS occurrence_id, l.id AS lesson_id, o.weekday, o.start_time, o.end_time,
-               l.room, l.remind_minutes_before, s.id AS subject_id, s.name AS subject_name, s.color_index
+               l.room, l.remind_minutes_before, s.id AS subject_id, s.name AS subject_name, s.color_argb
         FROM occurrence o
         JOIN lesson l ON l.id = o.lesson_id AND l.deleted_at IS NULL
         JOIN subject s ON s.id = l.subject_id AND s.deleted_at IS NULL
@@ -77,7 +79,7 @@ interface AgendaDao {
     @Query(
         """
         SELECT o.id AS occurrence_id, l.id AS lesson_id, o.weekday, o.start_time, o.end_time,
-               l.room, l.remind_minutes_before, s.id AS subject_id, s.name AS subject_name, s.color_index
+               l.room, l.remind_minutes_before, s.id AS subject_id, s.name AS subject_name, s.color_argb
         FROM occurrence o
         JOIN lesson l ON l.id = o.lesson_id AND l.deleted_at IS NULL
         JOIN subject s ON s.id = l.subject_id AND s.deleted_at IS NULL
@@ -85,6 +87,9 @@ interface AgendaDao {
         """
     )
     suspend fun allRemindableBlocks(): List<TimetableBlock>
+
+    @Query("SELECT * FROM subject WHERE id = :id")
+    suspend fun subject(id: String): Subject?
 
     @Transaction
     suspend fun replaceLesson(lesson: Lesson, occurrences: List<Occurrence>) {
@@ -96,15 +101,27 @@ interface AgendaDao {
 
 @Database(
     entities = [Planner::class, Subject::class, Timetable::class, Lesson::class, Occurrence::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AgendaDatabase : RoomDatabase() {
     abstract fun dao(): AgendaDao
 
     companion object {
+        /** v1 → v2: color libre ARGB. Copia el color de la antigua paleta de 10; no borra nada. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE subject ADD COLUMN color_argb INTEGER NOT NULL DEFAULT 0")
+                val old = listOf(0xFFF28B82, 0xFFF6AE6B, 0xFFFDD663, 0xFFA8DAB5, 0xFF7DD3C0, 0xFF8AB4F8, 0xFFB4A7F5, 0xFFF5A3D0, 0xFFC9B79C, 0xFFAEB8C2)
+                old.forEachIndexed { i, argb ->
+                    db.execSQL("UPDATE subject SET color_argb = ${argb.toInt()} WHERE color_index = $i")
+                }
+            }
+        }
+
         fun create(context: Context): AgendaDatabase =
             Room.databaseBuilder(context, AgendaDatabase::class.java, "agenda.db")
+                .addMigrations(MIGRATION_1_2)
                 // A propósito NO hay fallbackToDestructiveMigration: un cambio de esquema sin migración
                 // debe fallar en pruebas, nunca borrar los datos del usuario.
                 .build()

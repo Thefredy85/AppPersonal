@@ -40,8 +40,10 @@ data class Subject(
     @ColumnInfo(name = "planner_id") val plannerId: String,
     val name: String,
     @ColumnInfo(name = "name_key") val nameKey: String = normalizeName(name),
-    /** Índice 0..9 de la paleta de asignaturas (tokens subject-1..10). */
-    @ColumnInfo(name = "color_index") val colorIndex: Int,
+    /** Antiguo índice de paleta (v1–v2). Se conserva solo para la migración. */
+    @ColumnInfo(name = "color_index") val colorIndex: Int = 0,
+    /** Color libre ARGB (v3+): 24 colores de paleta o uno personalizado. */
+    @ColumnInfo(name = "color_argb", defaultValue = "0") val colorArgb: Int,
     /** "class" o "other" (bloques no escolares como el trabajo). */
     val kind: String = "class",
     @ColumnInfo(name = "created_at") val createdAt: Long = now(),
@@ -112,5 +114,5 @@ data class TimetableBlock(
     @ColumnInfo(name = "remind_minutes_before") val remindMinutesBefore: Int?,
     @ColumnInfo(name = "subject_id") val subjectId: String,
     @ColumnInfo(name = "subject_name") val subjectName: String,
-    @ColumnInfo(name = "color_index") val colorIndex: Int,
+    @ColumnInfo(name = "color_argb") val colorArgb: Int,
 )

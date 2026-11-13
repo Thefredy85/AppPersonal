@@ -126,8 +126,19 @@ class AlarmScheduler(private val context: Context) {
             return (nm.getNotificationChannel(CHANNEL_CLASSES)?.importance ?: NotificationManager.IMPORTANCE_HIGH) != NotificationManager.IMPORTANCE_NONE
         }
 
+        /** Android 14+: el usuario debe permitir los avisos a pantalla completa. */
+        fun canUseFullScreen(context: Context): Boolean =
+            Build.VERSION.SDK_INT < 34 || context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+
         fun notify(context: Context, id: Int, title: String, text: String) {
             if (!notificationsEnabled(context)) return
+            val wake = app.agenda.settings.Prefs(context).wakeScreen && canUseFullScreen(context)
+            val full = PendingIntent.getActivity(
+                context, id,
+                Intent(context, ReminderActivity::class.java).putExtra("title", title).putExtra("text", text)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
             val n = NotificationCompat.Builder(context, CHANNEL_CLASSES)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
@@ -135,6 +146,7 @@ class AlarmScheduler(private val context: Context) {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .apply { if (wake) setFullScreenIntent(full, true) }
                 .setContentIntent(
                     PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
                 )

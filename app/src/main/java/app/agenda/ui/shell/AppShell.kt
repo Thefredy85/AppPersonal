@@ -66,6 +66,12 @@ fun AppShell(vm: TimetableViewModel) {
     val subjects by vm.subjects.collectAsStateWithLifecycle()
     val editor by vm.editor.collectAsStateWithLifecycle()
     val lastDeleted by vm.lastDeleted.collectAsStateWithLifecycle()
+    val justSaved by vm.justSaved.collectAsStateWithLifecycle()
+    // Pantalla encendida mientras la app está abierta (ajuste en Más › Apariencia).
+    val app = LocalContext.current.applicationContext as AgendaApp
+    val view = androidx.compose.ui.platform.LocalView.current
+    val keepOn = app.keepScreenOn.value
+    DisposableEffect(keepOn) { view.keepScreenOn = keepOn; onDispose { view.keepScreenOn = false } }
     var openOccurrence by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val ctx = LocalContext.current
@@ -113,7 +119,10 @@ fun AppShell(vm: TimetableViewModel) {
                     when (target) {
                         Dest.Timetable -> TimetableGrid(
                             blocks = blocks,
+                            justSavedLessonId = justSaved,
+                            onSavedAnimationDone = { vm.clearJustSaved() },
                             onBlockClick = { openOccurrence = it.occurrenceId },
+                            onEmptySlot = { day, start -> vm.newLesson(day, start) },
                             onEmptyCreate = { vm.newLesson() },
                         )
                         Dest.More -> MoreScreen()
@@ -150,6 +159,7 @@ fun AppShell(vm: TimetableViewModel) {
             block = sheetBlock,
             allOfLesson = blocks.filter { it.lessonId == sheetBlock.lessonId },
             onEdit = { openOccurrence = null; vm.editLesson(sheetBlock.lessonId) },
+            onDuplicate = { openOccurrence = null; vm.duplicate(sheetBlock.lessonId) },
             onDelete = { openOccurrence = null; vm.delete(sheetBlock.lessonId) },
             onDismiss = { openOccurrence = null },
         )
@@ -158,7 +168,7 @@ fun AppShell(vm: TimetableViewModel) {
     // Editor a pantalla completa
     editor?.let { st ->
         LessonEditor(
-            state = st, subjects = subjects, existingMatch = vm::existingMatch,
+            state = st, subjects = subjects, blocks = blocks, existingMatch = vm::existingMatch,
             onChange = { vm.updateEditor(it) }, onSave = { vm.save() }, onClose = { vm.closeEditor() },
         )
     }
@@ -217,115 +227,3 @@ private fun ComingSoon(d: Dest) {
     }
 }
 
-/** Más → ajustes de avisos: permisos, batería del OPPO y aviso de prueba. */
-@Composable
-private fun MoreScreen() {
-    val c = Agenda.colors
-    val ctx = LocalContext.current
-    val app = ctx.applicationContext as AgendaApp
-    val scope = rememberCoroutineScope()
-    var refresh by remember { mutableIntStateOf(0) }
-    val openNotifSettings = {
-        ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
-    }
-    // Si Android ya no muestra el diálogo (permiso rechazado antes), abre directamente los ajustes de la app.
-    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        refresh++
-        if (!granted) openNotifSettings()
-    }
-    val notifOk = remember(refresh) { AlarmScheduler.notificationsEnabled(ctx) }
-    var testMsg by remember { mutableStateOf<String?>(null) }
-    val pm = ctx.getSystemService(PowerManager::class.java)
-    val exactOk = remember(refresh) { app.alarms.canScheduleExact() }
-    val batteryOk = remember(refresh) { pm.isIgnoringBatteryOptimizations(ctx.packageName) }
-    var scheduled by remember { mutableStateOf<Int?>(null) }
-
-    var updateMsg by remember { mutableStateOf<String?>(null) }
-    var foundUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = Dimens.screenPadding).padding(bottom = Dimens.bottomBar + Space.x4)
-    ) {
-        Text("Versión", style = MaterialTheme.typography.titleMedium, color = c.text, modifier = Modifier.padding(vertical = Space.md))
-        SettingCard(
-            title = "AppAgenda ${UpdateChecker.installedVersion(ctx)}",
-            body = updateMsg ?: "Busca si hay una versión nueva publicada.",
-            action = if (foundUpdate != null) "Descargar versión ${foundUpdate!!.version}" else "Buscar actualizaciones",
-            onClick = {
-                val f = foundUpdate
-                if (f != null) UpdateChecker.openDownloadPage(ctx, f.pageUrl)
-                else scope.launch {
-                    updateMsg = "Buscando…"
-                    UpdateChecker.check(ctx, force = true)
-                        .onSuccess { foundUpdate = it; updateMsg = if (it == null) "Tienes la versión más reciente." else "Hay una versión nueva: ${it.version}." }
-                        .onFailure { updateMsg = "No se pudo consultar. Revisa tu conexión." }
-                }
-            },
-        )
-        Text("Avisos", style = MaterialTheme.typography.titleMedium, color = c.text, modifier = Modifier.padding(vertical = Space.md))
-        SettingCard(
-            title = if (notifOk) "Notificaciones: activadas" else "Notificaciones: desactivadas",
-            body = if (notifOk) "Los avisos de clase se mostrarán." else "Sin este permiso no verás ningún aviso, ni el de prueba.",
-            action = if (notifOk) null else "Activar",
-            onClick = {
-                if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else openNotifSettings()
-            },
-        )
-        SettingCard(
-            title = if (exactOk) "Alarmas exactas: activadas" else "Alarmas exactas: desactivadas",
-            body = "Sin este permiso, Android puede retrasar los avisos varios minutos.",
-            action = if (exactOk) null else "Activar",
-            onClick = {
-                if (Build.VERSION.SDK_INT >= 31) ctx.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${ctx.packageName}")))
-            },
-        )
-        SettingCard(
-            title = if (batteryOk) "Ahorro de batería: sin restricción" else "Ahorro de batería: restringido",
-            body = "En teléfonos OPPO (ColorOS), el ahorro de batería puede cortar los avisos. " +
-                "Después de pulsar el botón, revisa también: Ajustes › Batería › esta app › Permitir actividad en segundo plano, y activa \"Inicio automático\".",
-            action = if (batteryOk) null else "Quitar restricción",
-            onClick = {
-                ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
-            },
-        )
-        SettingCard(
-            title = "Probar un aviso",
-            body = testMsg ?: "Envía un aviso en 15 segundos. Bloquea el teléfono y espera: si llega, los avisos de clase funcionarán.",
-            action = "Probar",
-            onClick = {
-                testMsg = if (!notifOk) {
-                    "Primero activa las notificaciones (arriba)."
-                } else {
-                    val at = app.alarms.scheduleTest(15)
-                    "Aviso programado para las " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(at)) + ". Bloquea el teléfono y espera."
-                }
-            },
-        )
-        SettingCard(
-            title = "Reprogramar avisos",
-            body = scheduled?.let { "Avisos programados: $it" } ?: "Vuelve a calcular el próximo aviso de cada clase.",
-            action = "Reprogramar",
-            onClick = { scope.launch { scheduled = app.rescheduleAlarms(); refresh++ } },
-        )
-    }
-    // Al volver de los ajustes del sistema, refresca el estado.
-    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { refresh++; onPauseOrDispose { } }
-}
-
-@Composable
-private fun SettingCard(title: String, body: String, action: String?, onClick: () -> Unit) {
-    val c = Agenda.colors
-    Column(
-        Modifier.fillMaxWidth().padding(bottom = Space.md)
-            .clip(MaterialTheme.shapes.large).background(c.surface).padding(Space.lg)
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = c.text)
-        Spacer(Modifier.height(Space.xs))
-        Text(body, style = MaterialTheme.typography.bodyMedium, color = c.textMuted)
-        if (action != null) {
-            Spacer(Modifier.height(Space.md))
-            FilledTonalButton(onClick = onClick) { Text(action) }
-        }
-    }
-}

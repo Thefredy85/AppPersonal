@@ -9,6 +9,8 @@ import app.agenda.data.Slot
 import app.agenda.data.Subject
 import app.agenda.data.TimetableBlock
 import app.agenda.data.normalizeName
+import app.agenda.ui.theme.SubjectPalette
+import app.agenda.ui.theme.argb
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,7 +28,9 @@ data class SlotGroup(val days: Set<Int> = emptySet(), val start: String = "08:00
 data class EditorState(
     val lessonId: String? = null,
     val subjectName: String = "",
-    val colorIndex: Int = 0,
+    val colorArgb: Int = 0,
+    /** Grupo de días que se está editando con el reloj. */
+    val activeGroup: Int = 0,
     val room: String = "",
     val remindMinutes: Int? = 10,
     val groups: List<SlotGroup> = listOf(SlotGroup()),
@@ -51,6 +55,15 @@ class TimetableViewModel(private val repo: AgendaRepository) : ViewModel() {
     private val _editor = MutableStateFlow<EditorState?>(null)
     val editor: StateFlow<EditorState?> = _editor.asStateFlow()
 
+    /** Clase recién guardada: el horario la "pinta" con una animación y luego se limpia. */
+    private val _justSaved = MutableStateFlow<String?>(null)
+    val justSaved: StateFlow<String?> = _justSaved.asStateFlow()
+    fun clearJustSaved() { _justSaved.value = null }
+
+    fun duplicate(lessonId: String) = viewModelScope.launch {
+        repo.duplicateLesson(lessonId)?.let { _justSaved.value = it; editLesson(it) }
+    }
+
     private val _lastDeleted = MutableStateFlow<String?>(null)
     val lastDeleted: StateFlow<String?> = _lastDeleted.asStateFlow()
 
@@ -58,7 +71,7 @@ class TimetableViewModel(private val repo: AgendaRepository) : ViewModel() {
         val (plannerId, _) = repo.ensureDefaults()
         val start = prefillStart ?: "08:00"
         _editor.value = EditorState(
-            colorIndex = repo.nextColorIndex(plannerId),
+            colorArgb = SubjectPalette[(repo.subjectCount(plannerId) * 5) % SubjectPalette.size].argb(),
             groups = listOf(SlotGroup(days = setOfNotNull(prefillDay), start = start, end = plusMinutes(start, 90))),
         )
     }
@@ -72,7 +85,7 @@ class TimetableViewModel(private val repo: AgendaRepository) : ViewModel() {
         _editor.value = EditorState(
             lessonId = lessonId,
             subjectName = subject?.name.orEmpty(),
-            colorIndex = subject?.colorIndex ?: 0,
+            colorArgb = subject?.colorArgb ?: SubjectPalette[5].argb(),
             room = lesson.room.orEmpty(),
             remindMinutes = lesson.remindMinutesBefore,
             groups = groups.ifEmpty { listOf(SlotGroup()) },
@@ -91,10 +104,10 @@ class TimetableViewModel(private val repo: AgendaRepository) : ViewModel() {
         _editor.value = s.copy(saving = true)
         val slots = s.groups.flatMap { g -> g.days.sorted().map { Slot(it, g.start, g.end) } }
         val result = repo.saveLesson(
-            LessonDraft(s.lessonId, s.subjectName, s.colorIndex, s.room, s.remindMinutes, slots)
+            LessonDraft(s.lessonId, s.subjectName, s.colorArgb, s.room, s.remindMinutes, slots)
         )
         when (result) {
-            SaveResult.Ok -> _editor.value = null
+            is SaveResult.Ok -> { _justSaved.value = result.lessonId; _editor.value = null }
             is SaveResult.Invalid -> _editor.value = s.copy(saving = false, error = result.message)
         }
     }
