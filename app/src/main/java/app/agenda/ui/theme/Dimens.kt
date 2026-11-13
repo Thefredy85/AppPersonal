@@ -12,4 +12,3 @@ object Dimens {
     val timetableTimeCol = 44.dp
     val formRowMinHeight = 56.dp
 }
-object Motion { const val FAST = 120; const val BASE = 220 }
