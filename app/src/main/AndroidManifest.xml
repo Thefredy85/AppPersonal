@@ -51,5 +51,26 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <receiver android:name=".widget.HoyWidgetReceiver" android:exported="true" android:label="@string/widget_hoy_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_hoy" />
+        </receiver>
+
+        <receiver android:name=".widget.PendingWidgetReceiver" android:exported="true" android:label="@string/widget_pendientes_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_pendientes" />
+        </receiver>
+
+        <receiver android:name=".widget.WeekWidgetReceiver" android:exported="true" android:label="@string/widget_semana_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_semana" />
+        </receiver>
     </application>
 </manifest>

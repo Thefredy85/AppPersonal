@@ -1,4 +1,10 @@
 <resources>
     <string name="app_name">Agenda</string>
     <string name="channel_classes">Avisos de clase</string>
+    <string name="widget_hoy_name">Hoy · clases</string>
+    <string name="widget_hoy_desc">Tu siguiente clase y las de hoy</string>
+    <string name="widget_pendientes_name">Pendientes</string>
+    <string name="widget_pendientes_desc">Tareas, exámenes y recordatorios; márcalos desde aquí</string>
+    <string name="widget_semana_name">Calor de la semana</string>
+    <string name="widget_semana_desc">Qué tan cargado viene cada día</string>
 </resources>

@@ -113,6 +113,11 @@ data class PendingReminder(
     val type: String,
     @ColumnInfo(name = "due_time") val dueTime: String?,
     @ColumnInfo(name = "subject_name") val subjectName: String?,
+    @ColumnInfo(name = "event_id") val eventId: String,
+    @ColumnInfo(name = "due_date") val dueDate: String,
+    val note: String?,
+    @ColumnInfo(name = "remember_that") val rememberThat: String?,
+    @ColumnInfo(name = "color_argb") val colorArgb: Int?,
 )
 
 @Dao
@@ -157,7 +162,8 @@ interface EventDao {
     /** Avisos de eventos no hechos ni borrados a partir de [fromLocal] ('YYYY-MM-DDTHH:MM'). */
     @Query(
         """
-        SELECT r.id AS reminder_id, r.remind_at_local, e.title, e.type, e.due_time, s.name AS subject_name
+        SELECT r.id AS reminder_id, r.remind_at_local, e.title, e.type, e.due_time, s.name AS subject_name,
+               e.id AS event_id, e.due_date, e.note, e.remember_that, s.color_argb
         FROM event_reminder r JOIN event e ON e.id = r.event_id AND e.deleted_at IS NULL AND e.done_at IS NULL
         LEFT JOIN subject s ON s.id = e.subject_id
         WHERE r.remind_at_local >= :fromLocal

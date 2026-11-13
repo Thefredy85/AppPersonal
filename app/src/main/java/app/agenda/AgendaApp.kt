@@ -39,6 +39,8 @@ class AgendaApp : Application() {
     suspend fun rescheduleAlarms(): Int {
         val nowLocal = java.time.LocalDateTime.now().withSecond(0).withNano(0)
         val pending = events.pendingReminders(nowLocal.toString().take(16))
-        return alarms.rescheduleAll(repository.remindableBlocks(), pending, nowLocal)
+        val n = alarms.rescheduleAll(repository.remindableBlocks(), pending, nowLocal)
+        app.agenda.widget.Widgets.refresh(this) // los widgets reflejan el cambio
+        return n
     }
 }
